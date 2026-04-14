@@ -1,0 +1,409 @@
+// schema.prisma
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  CARER
+  MANAGER
+  ADMIN
+  GUARDIAN
+}
+
+enum VisitStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  INCOMPLETE
+  LATE
+}
+
+enum NoteType {
+  GENERAL
+  INCIDENT
+  HANDOVER
+}
+
+enum NotePriority {
+  NORMAL
+  HIGH
+}
+
+enum ChecklistFieldType {
+  BOOLEAN
+  TEXT
+  NUMBER
+  SELECT
+}
+
+enum ClientDocumentCategory {
+  CARE_PLAN
+  CONSENT
+  MEDICATION
+  RISK_ASSESSMENT
+  OTHER
+}
+
+enum ShiftPostingStatus {
+  OPEN
+  FILLED
+  CANCELLED
+}
+
+enum ShiftApplicationStatus {
+  PENDING
+  SELECTED
+  NOT_SELECTED
+  WITHDRAWN
+}
+
+enum OrganizationJoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?  @unique
+  passwordHash String
+  role         UserRole @default(CARER)
+  isActive     Boolean  @default(true)
+  /// Set when the user completes email verification; required before first login.
+  emailVerifiedAt DateTime?
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  emailVerificationTokens EmailVerificationToken[]
+
+  visits       Visit[]       @relation("CarerVisits")
+  notes        Note[]        @relation("UserNotes")
+  schedules    Schedule[]    @relation("UserSchedules")
+  availability Availability[]
+  uploadedClientDocuments ClientDocument[]
+  shiftApplications ShiftApplication[]
+  shiftPostingsCreated ShiftPosting[] @relation("ShiftPostingCreatedBy")
+  managedTeams Team[] @relation("TeamManager")
+  teamMemberships TeamMembership[]
+  joinRequestsReviewed OrganizationJoinRequest[] @relation("JoinRequestReviewedBy")
+
+  @@index([organizationId])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Organization {
+  id             String   @id @default(cuid())
+  name           String
+  nameNormalized String   @unique
+  code           String   @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+  clients Client[]
+  checklistTemplates ChecklistTemplate[]
+  clientDocuments ClientDocument[]
+  shiftPostings ShiftPosting[]
+  joinRequests OrganizationJoinRequest[]
+  teams Team[]
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  address   String
+  latitude  Float?
+  longitude Float?
+  geofenceRadiusMeters Int?
+
+  contactName  String?
+  contactPhone String?
+  notes        String?
+  profile      Json?
+
+  active    Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visits    Visit[]
+  schedules Schedule[]
+  templates ChecklistTemplate[]
+  documents ClientDocument[]
+  shiftPostings ShiftPosting[]
+
+  @@index([organizationId])
+}
+
+model ClientDocument {
+  id               String   @id @default(cuid())
+  clientId         String
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  originalName     String
+  storageName      String
+  mimeType         String
+  sizeBytes        Int
+  category         ClientDocumentCategory @default(OTHER)
+  uploadedByUserId String
+  uploadedBy       User     @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  createdAt        DateTime @default(now())
+
+  @@index([clientId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+model ChecklistTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id])
+
+  items       ChecklistItem[]
+  submissions VisitChecklistSubmission[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+model ChecklistItem {
+  id          String             @id @default(cuid())
+  templateId  String
+  template    ChecklistTemplate  @relation(fields: [templateId], references: [id])
+
+  label       String
+  type        ChecklistFieldType
+  required    Boolean            @default(false)
+
+  optionsJson String?
+
+  visitItems  VisitChecklistItem[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Visit {
+  id             String       @id @default(cuid())
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id])
+
+  carerId        String
+  carer          User         @relation("CarerVisits", fields: [carerId], references: [id])
+
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
+
+  clockInTime    DateTime?
+  clockOutTime   DateTime?
+
+  clockInLat     Float?
+  clockInLng     Float?
+  clockOutLat    Float?
+  clockOutLng    Float?
+
+  withinGeofence Boolean?
+  lateClockInReason String?
+
+  status         VisitStatus  @default(NOT_STARTED)
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  checklistSubmissions VisitChecklistSubmission[]
+  notes               Note[]
+}
+
+model VisitChecklistSubmission {
+  id          String   @id @default(cuid())
+  visitId     String
+  visit       Visit    @relation(fields: [visitId], references: [id])
+
+  templateId  String?
+  template    ChecklistTemplate? @relation(fields: [templateId], references: [id])
+
+  submittedAt DateTime @default(now())
+  intervalIndex Int?
+
+  items       VisitChecklistItem[]
+}
+
+model VisitChecklistItem {
+  id                 String   @id @default(cuid())
+  submissionId       String
+  submission         VisitChecklistSubmission @relation(fields: [submissionId], references: [id])
+
+  checklistItemId    String?
+  checklistItem      ChecklistItem? @relation(fields: [checklistItemId], references: [id])
+
+  valueBoolean       Boolean?
+  valueText          String?
+  valueNumber        Float?
+  valueOption        String?
+}
+
+model Note {
+  id        String       @id @default(cuid())
+  visitId   String
+  visit     Visit        @relation(fields: [visitId], references: [id])
+
+  authorId  String
+  author    User         @relation("UserNotes", fields: [authorId], references: [id])
+
+  type      NoteType     @default(GENERAL)
+  priority  NotePriority @default(NORMAL)
+  text      String
+
+  createdAt DateTime     @default(now())
+}
+
+model Schedule {
+  id        String   @id @default(cuid())
+
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+
+  carerId   String
+  carer     User     @relation("UserSchedules", fields: [carerId], references: [id])
+
+  startTime DateTime
+  endTime   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Availability {
+  id        String   @id @default(cuid())
+
+  carerId   String
+  carer     User     @relation(fields: [carerId], references: [id])
+
+  startTime DateTime
+  endTime   DateTime
+  isAvailable Boolean @default(true) // true = available, false = unavailable
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([carerId, startTime, endTime])
+}
+
+model ShiftPosting {
+  id             String             @id @default(cuid())
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  slotsNeeded Int
+  startTime   DateTime
+  endTime     DateTime
+  title       String?
+  status      ShiftPostingStatus   @default(OPEN)
+
+  createdById String?
+  createdBy   User?                @relation("ShiftPostingCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  applications ShiftApplication[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([clientId, startTime])
+}
+
+model ShiftApplication {
+  id             String                 @id @default(cuid())
+  shiftPostingId String
+  shiftPosting   ShiftPosting           @relation(fields: [shiftPostingId], references: [id], onDelete: Cascade)
+  carerId        String
+  carer          User                   @relation(fields: [carerId], references: [id], onDelete: Cascade)
+
+  status ShiftApplicationStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([shiftPostingId, carerId])
+  @@index([carerId, status])
+}
+
+model OrganizationJoinRequest {
+  id             String                        @id @default(cuid())
+  organizationId String
+  organization   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requesterName  String
+  requesterEmail String
+  passwordHash   String
+  requestedRole  UserRole                      @default(CARER)
+  status         OrganizationJoinRequestStatus @default(PENDING)
+  reviewedById   String?
+  reviewedBy     User?                         @relation("JoinRequestReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+
+  @@index([organizationId, status, createdAt])
+}
+
+model Team {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  managerId      String
+  manager        User     @relation("TeamManager", fields: [managerId], references: [id], onDelete: Restrict)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  members TeamMembership[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, managerId])
+}
+
+model TeamMembership {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, userId])
+  @@index([userId])
+}
+

@@ -1,0 +1,200 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
+import Layout from '@/components/Layout';
+import Link from 'next/link';
+import { useRequireStaff } from '@/hooks/useRequireStaff';
+
+export default function NewCarerPage() {
+  const staffOk = useRequireStaff();
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    password: '',
+    role: 'CARER' as 'CARER' | 'MANAGER' | 'ADMIN' | 'GUARDIAN',
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const payload: any = {
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
+        role: formData.role,
+      };
+
+      if (formData.phone) payload.phone = formData.phone;
+
+      await api.post('/users', payload);
+      router.push('/carers');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to create carer';
+      setError(errorMessage);
+      console.error('Create carer error:', err.response?.data || err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (staffOk === null || staffOk === false) {
+    return (
+      <Layout>
+        <p role="status" aria-live="polite" className="text-navy-800">
+          {staffOk === false ? 'Redirecting…' : 'Checking access…'}
+        </p>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout>
+      <div>
+        <div className="mb-6">
+          <Link
+            href="/carers"
+            className="text-navy-600 hover:text-navy-800 mb-4 inline-block"
+          >
+            ← Back to Carers
+          </Link>
+          <h1 className="text-3xl font-bold text-navy-900">New Carer</h1>
+        </div>
+
+        {error && (
+          <div
+            role="alert"
+            className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4"
+          >
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="bg-white shadow rounded-lg p-6">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div>
+              <label htmlFor="new-carer-name" className="block text-sm font-medium text-navy-800 mb-1">
+                Name *
+              </label>
+              <input
+                id="new-carer-name"
+                type="text"
+                required
+                aria-required="true"
+                value={formData.name}
+                onChange={(e) =>
+                  setFormData({ ...formData, name: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-navy-200 rounded-md focus:outline-none focus:ring-navy-600 focus:border-navy-600 text-navy-900"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="new-carer-email" className="block text-sm font-medium text-navy-800 mb-1">
+                Email *
+              </label>
+              <input
+                id="new-carer-email"
+                type="email"
+                required
+                aria-required="true"
+                value={formData.email}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-navy-200 rounded-md focus:outline-none focus:ring-navy-600 focus:border-navy-600 text-navy-900"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="new-carer-phone" className="block text-sm font-medium text-navy-800 mb-1">
+                Phone
+              </label>
+              <input
+                id="new-carer-phone"
+                type="tel"
+                value={formData.phone}
+                onChange={(e) =>
+                  setFormData({ ...formData, phone: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-navy-200 rounded-md focus:outline-none focus:ring-navy-600 focus:border-navy-600 text-navy-900"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="new-carer-role" className="block text-sm font-medium text-navy-800 mb-1">
+                Role *
+              </label>
+              <select
+                id="new-carer-role"
+                required
+                aria-required="true"
+                value={formData.role}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    role: e.target.value as 'CARER' | 'MANAGER' | 'ADMIN' | 'GUARDIAN',
+                  })
+                }
+                className="w-full px-3 py-2 border border-navy-200 rounded-md focus:outline-none focus:ring-navy-600 focus:border-navy-600 text-navy-900"
+              >
+                <option value="CARER">Carer</option>
+                <option value="MANAGER">Manager</option>
+                <option value="ADMIN">Admin</option>
+                <option value="GUARDIAN">Guardian</option>
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label htmlFor="new-carer-password" className="block text-sm font-medium text-navy-800 mb-1">
+                Password *
+              </label>
+              <input
+                id="new-carer-password"
+                type="password"
+                required
+                aria-required="true"
+                minLength={6}
+                aria-describedby="new-carer-password-hint"
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData({ ...formData, password: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-navy-200 rounded-md focus:outline-none focus:ring-navy-600 focus:border-navy-600 text-navy-900"
+              />
+              <p id="new-carer-password-hint" className="mt-1 text-sm text-navy-800/70">
+                Minimum 6 characters
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 flex justify-end space-x-3">
+            <Link
+              href="/carers"
+              className="px-4 py-2 border border-navy-200 rounded-md text-navy-800 hover:bg-navy-50"
+            >
+              Cancel
+            </Link>
+            <button
+              type="submit"
+              disabled={loading}
+              aria-busy={loading}
+              className="px-4 py-2 bg-navy-600 text-white rounded-md hover:bg-navy-700 disabled:opacity-50"
+            >
+              {loading ? 'Creating...' : 'Create Carer'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </Layout>
+  );
+}
+
