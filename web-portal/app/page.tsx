@@ -1,23 +1,17 @@
-'use client';
+import { cookies } from "next/headers";
+import { createClient } from "@/utils/supabase/server";
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { authService } from '@/lib/auth';
+export default async function Page() {
+  const cookieStore = await cookies();
+  const supabase = createClient(cookieStore);
 
-export default function Home() {
-  const router = useRouter();
-
-  useEffect(() => {
-    if (authService.isAuthenticated()) {
-      router.push('/dashboard');
-    } else {
-      router.push('/login');
-    }
-  }, [router]);
+  const { data: todos } = await supabase.from("todos").select();
 
   return (
-    <p role="status" aria-live="polite" className="sr-only">
-      Redirecting…
-    </p>
+    <ul>
+      {todos?.map((todo) => (
+        <li key={todo.id}>{todo.name}</li>
+      ))}
+    </ul>
   );
 }

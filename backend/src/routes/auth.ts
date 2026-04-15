@@ -5,6 +5,13 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { sendEmailVerificationForUser, verifyEmailWithToken } from '../lib/emailVerification';
+import {
+  authChangePasswordLimiter,
+  authEmailFlowLimiter,
+  authLoginLimiter,
+  authOrganizationCreateLimiter,
+  authRegisterLimiter,
+} from '../middleware/rateLimits';
 
 const router = express.Router();
 
@@ -40,7 +47,7 @@ const resendVerificationSchema = z.object({
   email: z.string().trim().email(),
 });
 
-router.post('/organizations', async (req, res) => {
+router.post('/organizations', authOrganizationCreateLimiter, async (req, res) => {
   try {
     const { companyName, organizationCode } = createOrganizationSchema.parse(req.body);
     const normalizedCompanyName = companyName.trim().toLowerCase();
@@ -91,7 +98,7 @@ router.post('/organizations', async (req, res) => {
 });
 
 // Register
-router.post('/register', async (req, res) => {
+router.post('/register', authRegisterLimiter, async (req, res) => {
   try {
     const { name, companyName, organizationCode, email, password } = registerSchema.parse(req.body);
     const normalizedEmail = email.trim().toLowerCase();
@@ -185,7 +192,7 @@ router.post('/register', async (req, res) => {
 });
 
 // Login
-router.post('/login', async (req, res) => {
+router.post('/login', authLoginLimiter, async (req, res) => {
   try {
     const { email, organizationCode, password } = loginSchema.parse(req.body);
     const normalizedEmail = email.trim().toLowerCase();
@@ -254,7 +261,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/verify-email', async (req, res) => {
+router.post('/verify-email', authEmailFlowLimiter, async (req, res) => {
   try {
     const { token } = verifyEmailSchema.parse(req.body);
     const result = await verifyEmailWithToken(token);
@@ -277,7 +284,7 @@ router.post('/verify-email', async (req, res) => {
   }
 });
 
-router.post('/resend-verification', async (req, res) => {
+router.post('/resend-verification', authEmailFlowLimiter, async (req, res) => {
   try {
     const { email } = resendVerificationSchema.parse(req.body);
     const normalizedEmail = email.trim().toLowerCase();
@@ -346,40 +353,45 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-router.post('/change-password', authenticate, async (req: AuthRequest, res) => {
-  try {
-    const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
-    const user = await prisma.user.findUnique({
-      where: { id: req.userId },
-      select: { passwordHash: true },
-    });
-    if (!user?.passwordHash) {
-      return res.status(400).json({
-        error: 'PASSWORD_CHANGE_UNAVAILABLE',
-        message: 'Password change is not available for this account.',
+router.post(
+  '/change-password',
+  authChangePasswordLimiter,
+  authenticate,
+  async (req: AuthRequest, res) => {
+    try {
+      const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+      const user = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: { passwordHash: true },
       });
-    }
-    const matches = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!matches) {
-      return res.status(401).json({
-        error: 'INVALID_PASSWORD',
-        message: 'Current password is incorrect.',
+      if (!user?.passwordHash) {
+        return res.status(400).json({
+          error: 'PASSWORD_CHANGE_UNAVAILABLE',
+          message: 'Password change is not available for this account.',
+        });
+      }
+      const matches = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!matches) {
+        return res.status(401).json({
+          error: 'INVALID_PASSWORD',
+          message: 'Current password is incorrect.',
+        });
+      }
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await prisma.user.update({
+        where: { id: req.userId! },
+        data: { passwordHash },
       });
+      res.json({ message: 'Password updated successfully.' });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: error.errors[0].message });
+      }
+      console.error('Change password error:', error);
+      res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Internal server error' });
     }
-    const passwordHash = await bcrypt.hash(newPassword, 10);
-    await prisma.user.update({
-      where: { id: req.userId! },
-      data: { passwordHash },
-    });
-    res.json({ message: 'Password updated successfully.' });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: error.errors[0].message });
-    }
-    console.error('Change password error:', error);
-    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Internal server error' });
   }
-});
+);
 
 export default router;
 
