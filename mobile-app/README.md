@@ -19,12 +19,20 @@ React Native mobile app built with Expo for Haven Flow care staff.
 npm install
 ```
 
-2. Configure API URL in `src/services/api.ts`:
-```typescript
-const API_BASE_URL = __DEV__
-  ? 'http://localhost:3001/api'  // Update with your backend URL
-  : 'https://api.havenflow.com/api';
+2. Configure environment variables:
+
+Create `.env` (or `.env.local`) in `mobile-app/`:
+```bash
+# Optional: explicit API origin. If omitted in dev, the app auto-detects Expo host IP.
+EXPO_PUBLIC_API_ORIGIN=http://localhost:3001
+
+# Optional: custom dev backend port when host auto-detection is used
+EXPO_PUBLIC_API_PORT=3001
 ```
+
+The app builds API URLs from origin + route prefixes:
+- Legacy API: `${API_ORIGIN}/api`
+- v1 API: `${API_ORIGIN}/api/v1`
 
 3. Start the development server:
 ```bash
@@ -55,7 +63,11 @@ src/
 
 ## Environment Variables
 
-For production, you may want to use environment variables for the API URL. Install `expo-constants` and configure accordingly.
+API origin resolution order:
+1. `EXPO_PUBLIC_API_ORIGIN` (if set)
+2. Production fallback when `__DEV__` is false (`https://api.havenflow.com`)
+3. In development, Expo host auto-detection + `EXPO_PUBLIC_API_PORT` (defaults to `3001`)
+4. Final fallback: `http://localhost:3001`
 
 ## Testing
 

@@ -19,6 +19,10 @@ npm install
 Create a `.env.local` file:
 ```
 NEXT_PUBLIC_API_URL=http://localhost:3001/api
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
+# Optional fallback key name supported by the app:
+# NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
 3. Run development server:
@@ -50,3 +54,11 @@ components/
 ## Authentication
 
 The app uses JWT tokens stored in localStorage. Protected routes should check authentication status.
+
+## Supabase Notes
+
+Supabase client initialization expects:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`)
+
+If these are missing, the app throws a startup error in Supabase utility modules.

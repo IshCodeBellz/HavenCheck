@@ -22,8 +22,24 @@ npm install
 2. Set up environment variables:
 ```bash
 cp .env.example .env
-# Edit .env with your database URL and JWT secret
+# Edit .env with required values (database, JWT, and app URLs)
 ```
+
+Minimum required in local development:
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `PORT` (optional, defaults to 3001 in code)
+- `NODE_ENV` (`development` for local)
+
+Email verification and links:
+- `WEB_APP_URL` (used to build verification links)
+- `RESEND_API_KEY` (required in production to send emails)
+- `EMAIL_FROM` (sender identity)
+
+Network/runtime options:
+- `CORS_ORIGIN` (required in production for browser clients)
+- `TRUST_PROXY=1` when behind a reverse proxy/load balancer
+- `UPLOAD_DIR` (optional, defaults to `uploads/client-documents`)
 
 3. Set up database:
 ```bash

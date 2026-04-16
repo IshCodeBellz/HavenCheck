@@ -88,6 +88,8 @@ npm install
 ```bash
 # Create .env.local
 NEXT_PUBLIC_API_URL=http://localhost:3001/api
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
 ```
 
 4. Start development server:
@@ -139,6 +141,11 @@ From backend seed data:
 - **Backend**: Node.js, TypeScript, Express, Prisma, PostgreSQL
 - **Mobile**: React Native, Expo, TypeScript
 - **Web**: Next.js, TypeScript, Tailwind CSS
+
+## Environment Notes
+
+- Backend defaults and optional settings are documented in `backend/.env.example`.
+- Mobile app API origin can be configured with `EXPO_PUBLIC_API_ORIGIN` (with Expo host auto-detection fallback in development).
 
 ## Quick Setup
 
