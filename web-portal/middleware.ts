@@ -3,7 +3,7 @@ import { createClient } from "./utils/supabase/middleware";
 
 export async function middleware(request: NextRequest) {
   try {
-    return createClient(request);
+    return await createClient(request);
   } catch (error) {
     console.error("Middleware session refresh failed:", error);
     return NextResponse.next({

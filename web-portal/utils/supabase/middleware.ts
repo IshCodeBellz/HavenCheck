@@ -6,8 +6,8 @@ const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export const createClient = (request: NextRequest) => {
-  // Create an unmodified response
+export const createClient = async (request: NextRequest) => {
+  // Start with an unmodified pass-through response.
   let supabaseResponse = NextResponse.next({
     request: {
       headers: request.headers,
@@ -19,22 +19,33 @@ export const createClient = (request: NextRequest) => {
     return supabaseResponse;
   }
 
-  createServerClient(supabaseUrl, supabaseKey, {
+  const supabase = createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
       },
       setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        try {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        } catch {
+          // Request cookies can be immutable in some runtimes.
+        }
+
         supabaseResponse = NextResponse.next({
-          request,
+          request: {
+            headers: request.headers,
+          },
         });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options),
-        );
+
+        cookiesToSet.forEach(({ name, value, options }) => {
+          supabaseResponse.cookies.set(name, value, options);
+        });
       },
     },
   });
+
+  // Trigger token refresh/update and ensure cookie hooks run in middleware.
+  await supabase.auth.getUser();
 
   return supabaseResponse;
 };
