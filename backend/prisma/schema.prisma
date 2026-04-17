@@ -1,8 +1,8 @@
 // schema.prisma
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -71,34 +71,115 @@ enum OrganizationJoinRequestStatus {
   REJECTED
 }
 
+enum MedicationEventStatus {
+  ADMINISTERED
+  OMITTED
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentStatus {
+  REPORTED
+  TRIAGED
+  ESCALATED
+  ACTIONED
+  CLOSED
+}
+
+enum IncidentActionStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum CarePlanStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum CarePlanSectionType {
+  NEEDS
+  STRENGTHS
+  RISKS
+  ACTIONS
+}
+
+enum RiskTemplateType {
+  FALLS
+  PRESSURE_SORES
+  NUTRITION
+}
+
+enum BillingRateType {
+  HOURLY
+  FIXED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  VOID
+}
+
+enum PayslipStatus {
+  DRAFT
+  FINALIZED
+  PAID
+}
+
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  phone        String?  @unique
-  passwordHash String
-  role         UserRole @default(CARER)
-  isActive     Boolean  @default(true)
+  id                 String        @id @default(cuid())
+  name               String
+  email              String        @unique
+  phone              String?       @unique
+  passwordHash       String
+  role               UserRole      @default(CARER)
+  isActive           Boolean       @default(true)
+  dbsVerified        Boolean       @default(false)
+  certifications     String[]      @default([])
+  preferredClientIds String[]      @default([])
   /// Set when the user completes email verification; required before first login.
-  emailVerifiedAt DateTime?
-  organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id])
+  emailVerifiedAt    DateTime?
+  organizationId     String?
+  organization       Organization? @relation(fields: [organizationId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   emailVerificationTokens EmailVerificationToken[]
 
-  visits       Visit[]       @relation("CarerVisits")
-  notes        Note[]        @relation("UserNotes")
-  schedules    Schedule[]    @relation("UserSchedules")
-  availability Availability[]
-  uploadedClientDocuments ClientDocument[]
-  shiftApplications ShiftApplication[]
-  shiftPostingsCreated ShiftPosting[] @relation("ShiftPostingCreatedBy")
-  managedTeams Team[] @relation("TeamManager")
-  teamMemberships TeamMembership[]
-  joinRequestsReviewed OrganizationJoinRequest[] @relation("JoinRequestReviewedBy")
+  visits                    Visit[]                   @relation("CarerVisits")
+  notes                     Note[]                    @relation("UserNotes")
+  schedules                 Schedule[]                @relation("UserSchedules")
+  availability              Availability[]
+  uploadedClientDocuments   ClientDocument[]
+  shiftApplications         ShiftApplication[]
+  shiftPostingsCreated      ShiftPosting[]            @relation("ShiftPostingCreatedBy")
+  managedTeams              Team[]                    @relation("TeamManager")
+  teamMemberships           TeamMembership[]
+  joinRequestsReviewed      OrganizationJoinRequest[] @relation("JoinRequestReviewedBy")
+  recordedMedicationEvents  MedicationEvent[]
+  signedMedicationEvents    MedicationEvent[]         @relation("MedicationSignedBy")
+  deletedMedicationEvents   MedicationEvent[]         @relation("MedicationDeletedBy")
+  medicationAuditLogs       MedicationAuditLog[]
+  createdCarePlans          CarePlan[]                @relation("CarePlanCreatedBy")
+  carePlanVersions          CarePlanVersion[]         @relation("CarePlanVersionCreatedBy")
+  riskAssessmentsCreated    RiskAssessment[]          @relation("RiskAssessmentCreatedBy")
+  incidentsReported         Incident[]                @relation("IncidentReportedBy")
+  incidentActionsOwned      IncidentAction[]          @relation("IncidentActionOwner")
+  incidentActionsCreated    IncidentAction[]          @relation("IncidentActionCreatedBy")
+  incidentEscalations       IncidentEscalation[]      @relation("IncidentEscalatedBy")
+  bodyMapEntries            BodyMapEntry[]            @relation("BodyMapRecordedBy")
+  guardianLinks             GuardianLink[]            @relation("GuardianUserLinks")
+  guardianFeedEventsCreated GuardianFeedEvent[]       @relation("GuardianFeedCreatedBy")
+  payslips                  Payslip[]
 
   @@index([organizationId])
 }
@@ -115,204 +196,464 @@ model EmailVerificationToken {
 }
 
 model Organization {
-  id             String   @id @default(cuid())
+  id             String @id @default(cuid())
   name           String
-  nameNormalized String   @unique
-  code           String   @unique
+  nameNormalized String @unique
+  code           String @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users User[]
-  clients Client[]
-  checklistTemplates ChecklistTemplate[]
-  clientDocuments ClientDocument[]
-  shiftPostings ShiftPosting[]
-  joinRequests OrganizationJoinRequest[]
-  teams Team[]
+  users               User[]
+  clients             Client[]
+  checklistTemplates  ChecklistTemplate[]
+  clientDocuments     ClientDocument[]
+  shiftPostings       ShiftPosting[]
+  joinRequests        OrganizationJoinRequest[]
+  teams               Team[]
+  medications         Medication[]
+  medicationSchedules MedicationSchedule[]
+  medicationEvents    MedicationEvent[]
+  medicationAuditLogs MedicationAuditLog[]
+  carePlans           CarePlan[]
+  carePlanTemplates   CarePlanTemplate[]
+  riskTemplates       RiskTemplate[]
+  riskAssessments     RiskAssessment[]
+  incidents           Incident[]
+  bodyMapEntries      BodyMapEntry[]
+  guardianLinks       GuardianLink[]
+  guardianFeedEvents  GuardianFeedEvent[]
+  rateCards           RateCard[]
+  invoices            Invoice[]
+  payslips            Payslip[]
 }
 
 model Client {
-  id        String   @id @default(cuid())
-  name      String
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  address   String
-  latitude  Float?
-  longitude Float?
+  id                   String       @id @default(cuid())
+  name                 String
+  organizationId       String
+  organization         Organization @relation(fields: [organizationId], references: [id])
+  address              String
+  latitude             Float?
+  longitude            Float?
   geofenceRadiusMeters Int?
 
-  contactName  String?
-  contactPhone String?
-  notes        String?
-  profile      Json?
+  contactName            String?
+  contactPhone           String?
+  notes                  String?
+  profile                Json?
+  requiredDbs            Boolean  @default(false)
+  requiredCertifications String[] @default([])
 
-  active    Boolean  @default(true)
+  active Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  visits    Visit[]
-  schedules Schedule[]
-  templates ChecklistTemplate[]
-  documents ClientDocument[]
-  shiftPostings ShiftPosting[]
+  visits             Visit[]
+  schedules          Schedule[]
+  templates          ChecklistTemplate[]
+  documents          ClientDocument[]
+  shiftPostings      ShiftPosting[]
+  medications        Medication[]
+  medicationEvents   MedicationEvent[]
+  carePlans          CarePlan[]
+  riskAssessments    RiskAssessment[]
+  incidents          Incident[]
+  bodyMapEntries     BodyMapEntry[]
+  guardianLinks      GuardianLink[]
+  guardianFeedEvents GuardianFeedEvent[]
+  rateCards          RateCard[]
+  invoices           Invoice[]
 
   @@index([organizationId])
 }
 
 model ClientDocument {
-  id               String   @id @default(cuid())
+  id               String                 @id @default(cuid())
   clientId         String
-  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client           Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
   organizationId   String
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   originalName     String
   storageName      String
   mimeType         String
   sizeBytes        Int
   category         ClientDocumentCategory @default(OTHER)
   uploadedByUserId String
-  uploadedBy       User     @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
-  createdAt        DateTime @default(now())
+  uploadedBy       User                   @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  createdAt        DateTime               @default(now())
 
   @@index([clientId, createdAt])
   @@index([organizationId, createdAt])
 }
 
 model ChecklistTemplate {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
+  id             String       @id @default(cuid())
+  name           String
+  description    String?
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
-  clientId    String?
-  client      Client?  @relation(fields: [clientId], references: [id])
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
 
   items       ChecklistItem[]
   submissions VisitChecklistSubmission[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
 
   @@index([organizationId])
 }
 
 model ChecklistItem {
-  id          String             @id @default(cuid())
-  templateId  String
-  template    ChecklistTemplate  @relation(fields: [templateId], references: [id])
+  id         String            @id @default(cuid())
+  templateId String
+  template   ChecklistTemplate @relation(fields: [templateId], references: [id])
 
-  label       String
-  type        ChecklistFieldType
-  required    Boolean            @default(false)
+  label    String
+  type     ChecklistFieldType
+  required Boolean            @default(false)
 
   optionsJson String?
 
-  visitItems  VisitChecklistItem[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  visitItems VisitChecklistItem[]
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
 }
 
 model Visit {
-  id             String       @id @default(cuid())
-  clientId       String
-  client         Client       @relation(fields: [clientId], references: [id])
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
 
-  carerId        String
-  carer          User         @relation("CarerVisits", fields: [carerId], references: [id])
+  carerId String
+  carer   User   @relation("CarerVisits", fields: [carerId], references: [id])
 
   scheduledStart DateTime?
   scheduledEnd   DateTime?
 
-  clockInTime    DateTime?
-  clockOutTime   DateTime?
+  clockInTime  DateTime?
+  clockOutTime DateTime?
 
-  clockInLat     Float?
-  clockInLng     Float?
-  clockOutLat    Float?
-  clockOutLng    Float?
+  clockInLat  Float?
+  clockInLng  Float?
+  clockOutLat Float?
+  clockOutLng Float?
 
-  withinGeofence Boolean?
+  withinGeofence    Boolean?
   lateClockInReason String?
 
-  status         VisitStatus  @default(NOT_STARTED)
+  status VisitStatus @default(NOT_STARTED)
 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  checklistSubmissions VisitChecklistSubmission[]
+  notes                Note[]
+  medicationEvents     MedicationEvent[]
+  incidents            Incident[]
+}
+
+model Medication {
+  id               String       @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name             String
+  dosage           String?
+  instructions     String?
+  isPrn            Boolean      @default(false)
+  currentStock     Int?
+  reorderThreshold Int?
+  active           Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  schedules MedicationSchedule[]
+  events    MedicationEvent[]
+  auditLogs MedicationAuditLog[]
+
+  @@index([organizationId, clientId, active])
+}
+
+model MedicationSchedule {
+  id             String       @id @default(cuid())
+  medicationId   String
+  medication     Medication   @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  timeOfDay      String
+  daysOfWeek     String[]     @default([])
+  isPrn          Boolean      @default(false)
+  active         Boolean      @default(true)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  checklistSubmissions VisitChecklistSubmission[]
-  notes               Note[]
+  events MedicationEvent[]
+
+  @@index([organizationId, medicationId, active])
+}
+
+model MedicationEvent {
+  id                String                @id @default(cuid())
+  organizationId    String
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  visitId           String
+  visit             Visit                 @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  clientId          String
+  client            Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  medicationId      String
+  medication        Medication            @relation(fields: [medicationId], references: [id], onDelete: Restrict)
+  scheduleId        String?
+  schedule          MedicationSchedule?   @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  status            MedicationEventStatus
+  note              String?
+  reasonCode        String?
+  prnIndication     String?
+  dosageGiven       String?
+  signatureImage    String?
+  signedAt          DateTime?
+  signedByUserId    String?
+  signedByUser      User?                 @relation("MedicationSignedBy", fields: [signedByUserId], references: [id], onDelete: SetNull)
+  effectivenessNote String?
+  administeredAt    DateTime              @default(now())
+  recordedById      String
+  recordedBy        User                  @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  deletedAt         DateTime?
+  deletedById       String?
+  deletedBy         User?                 @relation("MedicationDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  createdAt         DateTime              @default(now())
+
+  auditLogs MedicationAuditLog[]
+
+  @@index([organizationId, visitId, createdAt])
+  @@index([clientId, administeredAt])
+  @@index([organizationId, deletedAt, administeredAt])
+}
+
+model MedicationAuditLog {
+  id                String           @id @default(cuid())
+  organizationId    String
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  medicationId      String?
+  medication        Medication?      @relation(fields: [medicationId], references: [id], onDelete: SetNull)
+  medicationEventId String?
+  medicationEvent   MedicationEvent? @relation(fields: [medicationEventId], references: [id], onDelete: SetNull)
+  action            String
+  payload           Json?
+  actorId           String
+  actor             User             @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt         DateTime         @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([medicationId, createdAt])
+  @@index([medicationEventId, createdAt])
 }
 
 model VisitChecklistSubmission {
-  id          String   @id @default(cuid())
-  visitId     String
-  visit       Visit    @relation(fields: [visitId], references: [id])
+  id      String @id @default(cuid())
+  visitId String
+  visit   Visit  @relation(fields: [visitId], references: [id])
 
-  templateId  String?
-  template    ChecklistTemplate? @relation(fields: [templateId], references: [id])
+  templateId String?
+  template   ChecklistTemplate? @relation(fields: [templateId], references: [id])
 
-  submittedAt DateTime @default(now())
+  submittedAt   DateTime @default(now())
   intervalIndex Int?
 
-  items       VisitChecklistItem[]
+  items VisitChecklistItem[]
 }
 
 model VisitChecklistItem {
-  id                 String   @id @default(cuid())
-  submissionId       String
-  submission         VisitChecklistSubmission @relation(fields: [submissionId], references: [id])
+  id           String                   @id @default(cuid())
+  submissionId String
+  submission   VisitChecklistSubmission @relation(fields: [submissionId], references: [id])
 
-  checklistItemId    String?
-  checklistItem      ChecklistItem? @relation(fields: [checklistItemId], references: [id])
+  checklistItemId String?
+  checklistItem   ChecklistItem? @relation(fields: [checklistItemId], references: [id])
 
-  valueBoolean       Boolean?
-  valueText          String?
-  valueNumber        Float?
-  valueOption        String?
+  valueBoolean Boolean?
+  valueText    String?
+  valueNumber  Float?
+  valueOption  String?
 }
 
 model Note {
-  id        String       @id @default(cuid())
-  visitId   String
-  visit     Visit        @relation(fields: [visitId], references: [id])
+  id      String @id @default(cuid())
+  visitId String
+  visit   Visit  @relation(fields: [visitId], references: [id])
 
-  authorId  String
-  author    User         @relation("UserNotes", fields: [authorId], references: [id])
+  authorId String
+  author   User   @relation("UserNotes", fields: [authorId], references: [id])
 
-  type      NoteType     @default(GENERAL)
-  priority  NotePriority @default(NORMAL)
-  text      String
+  type     NoteType     @default(GENERAL)
+  priority NotePriority @default(NORMAL)
+  text     String
 
-  createdAt DateTime     @default(now())
+  createdAt DateTime @default(now())
+}
+
+model Incident {
+  id               String           @id @default(cuid())
+  organizationId   String
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  visitId          String?
+  visit            Visit?           @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  reportedById     String
+  reportedBy       User             @relation("IncidentReportedBy", fields: [reportedById], references: [id], onDelete: Restrict)
+  category         String
+  severity         IncidentSeverity
+  safeguardingFlag Boolean          @default(false)
+  status           IncidentStatus   @default(REPORTED)
+  details          String?
+  closedAt         DateTime?
+  closedById       String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  escalations IncidentEscalation[]
+  followUps   IncidentFollowUp[]
+  actions     IncidentAction[]
+  bodyMaps    BodyMapEntry[]
+
+  @@index([organizationId, createdAt])
+  @@index([clientId, createdAt])
+  @@index([visitId])
+  @@index([status, severity])
+}
+
+model IncidentEscalation {
+  id            String    @id @default(cuid())
+  incidentId    String
+  incident      Incident  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  reason        String
+  escalatedById String
+  escalatedBy   User      @relation("IncidentEscalatedBy", fields: [escalatedById], references: [id], onDelete: Restrict)
+  slaDueAt      DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([incidentId, createdAt])
+}
+
+model IncidentFollowUp {
+  id         String    @id @default(cuid())
+  incidentId String
+  incident   Incident  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  note       String
+  dueAt      DateTime?
+  done       Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([incidentId, createdAt])
+}
+
+model IncidentAction {
+  id          String               @id @default(cuid())
+  incidentId  String
+  incident    Incident             @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  description String
+  ownerUserId String?
+  owner       User?                @relation("IncidentActionOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdById String
+  createdBy   User                 @relation("IncidentActionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  dueAt       DateTime?
+  status      IncidentActionStatus @default(OPEN)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([incidentId, status])
+  @@index([ownerUserId, status])
+}
+
+model BodyMapEntry {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  incidentId     String?
+  incident       Incident?    @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+  recordedById   String
+  recordedBy     User         @relation("BodyMapRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  coordinates    Json
+  notes          String?
+  images         String[]     @default([])
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, clientId, createdAt])
+  @@index([incidentId, createdAt])
+}
+
+model GuardianLink {
+  id               String       @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  guardianUserId   String
+  guardianUser     User         @relation("GuardianUserLinks", fields: [guardianUserId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  readOnly         Boolean      @default(true)
+  canViewVisits    Boolean      @default(true)
+  canViewNotes     Boolean      @default(true)
+  canViewIncidents Boolean      @default(true)
+  active           Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([guardianUserId, clientId])
+  @@index([organizationId, guardianUserId, active])
+}
+
+model GuardianFeedEvent {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sourceType     String
+  sourceId       String
+  payload        Json
+  createdById    String?
+  createdBy      User?        @relation("GuardianFeedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, clientId, createdAt])
+  @@index([sourceType, sourceId])
 }
 
 model Schedule {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  clientId  String
-  client    Client   @relation(fields: [clientId], references: [id])
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
 
-  carerId   String
-  carer     User     @relation("UserSchedules", fields: [carerId], references: [id])
+  carerId String
+  carer   User   @relation("UserSchedules", fields: [carerId], references: [id])
 
-  startTime DateTime
-  endTime   DateTime
+  startTime             DateTime
+  endTime               DateTime
+  travelDistanceMiles   Float?
+  travelDurationMinutes Int?
+  conflictFlags         String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Availability {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  carerId   String
-  carer     User     @relation(fields: [carerId], references: [id])
+  carerId String
+  carer   User   @relation(fields: [carerId], references: [id])
 
-  startTime DateTime
-  endTime   DateTime
-  isAvailable Boolean @default(true) // true = available, false = unavailable
+  startTime   DateTime
+  endTime     DateTime
+  isAvailable Boolean  @default(true) // true = available, false = unavailable
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -321,20 +662,20 @@ model Availability {
 }
 
 model ShiftPosting {
-  id             String             @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
-  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   clientId       String
-  client         Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   slotsNeeded Int
   startTime   DateTime
   endTime     DateTime
   title       String?
-  status      ShiftPostingStatus   @default(OPEN)
+  status      ShiftPostingStatus @default(OPEN)
 
   createdById String?
-  createdBy   User?                @relation("ShiftPostingCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("ShiftPostingCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   applications ShiftApplication[]
 
@@ -346,11 +687,11 @@ model ShiftPosting {
 }
 
 model ShiftApplication {
-  id             String                 @id @default(cuid())
+  id             String       @id @default(cuid())
   shiftPostingId String
-  shiftPosting   ShiftPosting           @relation(fields: [shiftPostingId], references: [id], onDelete: Cascade)
+  shiftPosting   ShiftPosting @relation(fields: [shiftPostingId], references: [id], onDelete: Cascade)
   carerId        String
-  carer          User                   @relation(fields: [carerId], references: [id], onDelete: Cascade)
+  carer          User         @relation(fields: [carerId], references: [id], onDelete: Cascade)
 
   status ShiftApplicationStatus @default(PENDING)
 
@@ -380,15 +721,122 @@ model OrganizationJoinRequest {
   @@index([organizationId, status, createdAt])
 }
 
+model CarePlan {
+  id                   String           @id @default(cuid())
+  organizationId       String
+  organization         Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId             String
+  client               Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  status               CarePlanStatus   @default(DRAFT)
+  reviewDate           DateTime?
+  reviewReminderAt     DateTime?
+  reviewReminderSentAt DateTime?
+  createdById          String
+  createdBy            User             @relation("CarePlanCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  currentVersionId     String?
+  currentVersion       CarePlanVersion? @relation("CarePlanCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  versions        CarePlanVersion[] @relation("CarePlanVersions")
+  riskAssessments RiskAssessment[]
+
+  @@index([organizationId, clientId, status])
+  @@index([reviewDate, status])
+}
+
+model CarePlanVersion {
+  id          String   @id @default(cuid())
+  carePlanId  String
+  carePlan    CarePlan @relation("CarePlanVersions", fields: [carePlanId], references: [id], onDelete: Cascade)
+  version     Int
+  summary     String?
+  createdById String
+  createdBy   User     @relation("CarePlanVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+
+  currentForPlans CarePlan[]        @relation("CarePlanCurrentVersion")
+  sections        CarePlanSection[]
+
+  @@unique([carePlanId, version])
+  @@index([carePlanId, createdAt])
+}
+
+model CarePlanSection {
+  id          String              @id @default(cuid())
+  versionId   String
+  version     CarePlanVersion     @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  sectionType CarePlanSectionType
+  title       String
+  body        String
+  orderIndex  Int                 @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([versionId, sectionType, orderIndex])
+}
+
+model CarePlanTemplate {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  key            String
+  name           String
+  description    String?
+  sections       Json
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, key])
+}
+
+model RiskTemplate {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  templateType   RiskTemplateType
+  name           String
+  description    String?
+  scoringRules   Json
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  assessments RiskAssessment[]
+
+  @@unique([organizationId, templateType])
+}
+
+model RiskAssessment {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  carePlanId     String?
+  carePlan       CarePlan?    @relation(fields: [carePlanId], references: [id], onDelete: SetNull)
+  templateId     String
+  template       RiskTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  answers        Json
+  totalScore     Int
+  riskLevel      String
+  reviewedAt     DateTime     @default(now())
+  createdById    String
+  createdBy      User         @relation("RiskAssessmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, clientId, createdAt])
+  @@index([carePlanId])
+}
+
 model Team {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
   managerId      String
-  manager        User     @relation("TeamManager", fields: [managerId], references: [id], onDelete: Restrict)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  manager        User         @relation("TeamManager", fields: [managerId], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   members TeamMembership[]
 
@@ -408,3 +856,127 @@ model TeamMembership {
   @@index([userId])
 }
 
+model AuditLog {
+  id             String    @id @default(cuid())
+  organizationId String
+  module         String
+  action         String
+  entityType     String?
+  entityId       String?
+  actorId        String
+  actorRole      UserRole?
+  route          String?
+  method         String?
+  beforeData     Json?
+  afterData      Json?
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, module, createdAt])
+  @@index([entityType, entityId, createdAt])
+}
+
+model MessageThread {
+  id             String   @id @default(cuid())
+  organizationId String
+  subject        String?
+  isBroadcast    Boolean  @default(false)
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  messages Message[]
+
+  @@index([organizationId, updatedAt])
+}
+
+model Message {
+  id          String        @id @default(cuid())
+  threadId    String
+  thread      MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId    String
+  recipientId String?
+  body        String
+  readAt      DateTime?
+  createdAt   DateTime      @default(now())
+
+  @@index([threadId, createdAt])
+  @@index([recipientId, createdAt])
+}
+
+model RateCard {
+  id                 String          @id @default(cuid())
+  organizationId     String
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId           String?
+  client             Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  name               String
+  contractRef        String?
+  billingRateType    BillingRateType @default(HOURLY)
+  billingHourlyRate  Float?
+  billingFixedRate   Float?
+  payrollHourlyRate  Float
+  mileageRatePerMile Float           @default(0.0)
+  holidayAccrualRate Float           @default(0.1207)
+  active             Boolean         @default(true)
+  effectiveFrom      DateTime?
+  effectiveTo        DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  invoices Invoice[]
+  payslips Payslip[]
+
+  @@index([organizationId, clientId, active])
+  @@index([organizationId, contractRef, active])
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  rateCardId     String?
+  rateCard       RateCard?     @relation(fields: [rateCardId], references: [id], onDelete: SetNull)
+  periodStart    DateTime
+  periodEnd      DateTime
+  issuedAt       DateTime      @default(now())
+  dueAt          DateTime
+  status         InvoiceStatus @default(DRAFT)
+  currency       String        @default("GBP")
+  subtotal       Float         @default(0.0)
+  total          Float         @default(0.0)
+  lineItems      Json
+  xeroReference  String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, clientId, periodStart, periodEnd])
+}
+
+model Payslip {
+  id                  String        @id @default(cuid())
+  organizationId      String
+  organization        Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  carerId             String
+  carer               User          @relation(fields: [carerId], references: [id], onDelete: Restrict)
+  rateCardId          String?
+  rateCard            RateCard?     @relation(fields: [rateCardId], references: [id], onDelete: SetNull)
+  periodStart         DateTime
+  periodEnd           DateTime
+  status              PayslipStatus @default(DRAFT)
+  hoursWorked         Float         @default(0.0)
+  mileageMiles        Float         @default(0.0)
+  mileagePay          Float         @default(0.0)
+  holidayAccruedHours Float         @default(0.0)
+  grossPay            Float         @default(0.0)
+  lineItems           Json
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([organizationId, carerId, periodStart, periodEnd])
+  @@index([organizationId, createdAt])
+}
