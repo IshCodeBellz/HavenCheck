@@ -1,5 +1,8 @@
+import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
+import { notificationService } from './notificationService';
 import { VisitStatus } from '@prisma/client';
+import { parseQueryDateFrom, parseQueryDateTo } from '../lib/marReports';
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000; // Earth's radius in meters
@@ -57,6 +60,11 @@ async function updateOverdueVisitStatuses() {
 }
 
 export const visitsService = {
+  /** Updates NOT_STARTED → LATE → MISSED based on current time (used before operational reports). */
+  async ensureVisitStatusesFresh() {
+    await updateOverdueVisitStatuses();
+  },
+
   async getTodayVisits(carerId?: string, organizationId?: string) {
     // Refresh time-based statuses before fetching
     await updateOverdueVisitStatuses();
@@ -256,6 +264,20 @@ export const visitsService = {
           },
           orderBy: { createdAt: 'desc' },
         },
+        medicationEvents: {
+          where: { deletedAt: null },
+          include: {
+            medication: true,
+            schedule: true,
+            recordedBy: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: { administeredAt: 'desc' },
+        },
       },
     });
 
@@ -335,6 +357,10 @@ export const visitsService = {
   async clockOut(visitId: string, carerId: string, data: { latitude: number; longitude: number }) {
     const visit = await prisma.visit.findUnique({
       where: { id: visitId },
+      include: {
+        client: { select: { id: true, name: true, organizationId: true } },
+        carer: { select: { id: true, name: true } },
+      },
     });
 
     if (!visit) {
@@ -364,10 +390,11 @@ export const visitsService = {
       throw error;
     }
 
-    return await prisma.visit.update({
+    const clockOutTime = new Date();
+    const updated = await prisma.visit.update({
       where: { id: visitId },
       data: {
-        clockOutTime: new Date(),
+        clockOutTime,
         clockOutLat: data.latitude,
         clockOutLng: data.longitude,
         status: 'COMPLETED',
@@ -382,12 +409,32 @@ export const visitsService = {
         },
       },
     });
+
+    void notificationService
+      .notifyGuardiansVisitCompleted({
+        organizationId: visit.client.organizationId,
+        visit: {
+          id: updated.id,
+          clientId: updated.clientId,
+          clientName: visit.client.name,
+          carerId: updated.carerId,
+          carerName: visit.carer.name,
+          clockInTime: visit.clockInTime,
+          clockOutTime,
+          scheduledStart: updated.scheduledStart,
+          scheduledEnd: updated.scheduledEnd,
+        },
+      })
+      .catch((err) => console.error('guardian_visit_notify_failed', err));
+
+    return updated;
   },
 
-  async getTimesheetReport(query: { from?: string; to?: string; carerId?: string }) {
+  async getTimesheetReport(query: { organizationId: string; from?: string; to?: string; carerId?: string; clientId?: string }) {
     await updateOverdueVisitStatuses();
 
     const where: any = {
+      client: { organizationId: query.organizationId },
       clockInTime: { not: null },
       clockOutTime: { not: null },
     };
@@ -395,17 +442,22 @@ export const visitsService = {
     if (query.carerId) {
       where.carerId = query.carerId;
     }
+    if (query.clientId) {
+      where.clientId = query.clientId;
+    }
 
-    if (query.from || query.to) {
+    const fromD = parseQueryDateFrom(query.from);
+    const toD = parseQueryDateTo(query.to);
+    if (fromD || toD) {
       where.scheduledStart = {};
-      if (query.from) {
-        where.scheduledStart.gte = new Date(query.from);
-      }
-      if (query.to) {
-        const end = new Date(query.to);
-        end.setHours(23, 59, 59, 999);
-        where.scheduledStart.lte = end;
-      }
+      if (fromD) where.scheduledStart.gte = fromD;
+      if (toD) where.scheduledStart.lte = toD;
+    } else {
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      const start = subDays(end, 90);
+      start.setHours(0, 0, 0, 0);
+      where.scheduledStart = { gte: start, lte: end };
     }
 
     const visits = await prisma.visit.findMany({
@@ -421,9 +473,10 @@ export const visitsService = {
       const ms = v.clockOutTime!.getTime() - v.clockInTime!.getTime();
       return {
         visitId: v.id,
+        clientId: v.clientId,
+        clientName: v.client.name,
         carerId: v.carerId,
         carerName: v.carer.name,
-        clientName: v.client.name,
         scheduledStart: v.scheduledStart?.toISOString() ?? '',
         clockInTime: v.clockInTime!.toISOString(),
         clockOutTime: v.clockOutTime!.toISOString(),
@@ -435,21 +488,36 @@ export const visitsService = {
       string,
       { carerId: string; carerName: string; totalMinutes: number; visitCount: number }
     >();
+    const byClientMap = new Map<
+      string,
+      { clientId: string; clientName: string; totalMinutes: number; visitCount: number }
+    >();
     for (const r of rows) {
-      const cur = byCarerMap.get(r.carerId) || {
+      const curC = byCarerMap.get(r.carerId) || {
         carerId: r.carerId,
         carerName: r.carerName,
         totalMinutes: 0,
         visitCount: 0,
       };
-      cur.totalMinutes += r.minutes;
-      cur.visitCount += 1;
-      byCarerMap.set(r.carerId, cur);
+      curC.totalMinutes += r.minutes;
+      curC.visitCount += 1;
+      byCarerMap.set(r.carerId, curC);
+
+      const curCl = byClientMap.get(r.clientId) || {
+        clientId: r.clientId,
+        clientName: r.clientName,
+        totalMinutes: 0,
+        visitCount: 0,
+      };
+      curCl.totalMinutes += r.minutes;
+      curCl.visitCount += 1;
+      byClientMap.set(r.clientId, curCl);
     }
 
     return {
       rows,
       summary: Array.from(byCarerMap.values()).sort((a, b) => b.totalMinutes - a.totalMinutes),
+      byClient: Array.from(byClientMap.values()).sort((a, b) => b.totalMinutes - a.totalMinutes),
     };
   },
 };

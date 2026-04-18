@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { authService, User } from '@/lib/auth';
 import { LOGO_PATH } from '@/lib/brand';
-import { hasCarerPortalNav, isAdmin } from '@/lib/roles';
+import { hasCarerPortalNav, isAdmin, isGuardian } from '@/lib/roles';
 
 type NavItem = { href: string; label: string; matchPrefix?: boolean };
 
@@ -100,6 +100,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       { href: '/manager/overview', label: 'Team overview', matchPrefix: true },
       { href: '/manager/team-rota', label: 'Team rota', matchPrefix: true },
       { href: '/manager/open-shifts', label: 'Open shifts', matchPrefix: true },
+      { href: '/manager/compliance', label: 'Compliance', matchPrefix: true },
+      { href: '/manager/reports', label: 'Reports', matchPrefix: true },
     ];
     if (isAdmin(u)) {
       items.push({ href: '/admin', label: 'Admin', matchPrefix: true });
@@ -123,7 +125,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { href: '/availability', label: 'Availability' },
   ];
 
-  const navItems: NavItem[] = hasCarerPortalNav(user) ? carerNavItems : buildManagerNav(user!);
+  const guardianNavItems: NavItem[] = [
+    { href: '/guardian', label: 'Family feed' },
+    { href: '/messages', label: 'Care alerts' },
+  ];
+
+  const navItems: NavItem[] = isGuardian(user)
+    ? guardianNavItems
+    : hasCarerPortalNav(user)
+      ? carerNavItems
+      : buildManagerNav(user!);
 
   const navItemActive = (item: NavItem) =>
     item.matchPrefix ? pathname.startsWith(item.href) : pathname === item.href;
@@ -181,9 +192,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <div className="shrink-0 flex items-center">
                 <Link
-                  href="/dashboard"
+                  href={isGuardian(user) ? '/guardian' : '/dashboard'}
                   className="flex items-center rounded-xl border border-navy-100 bg-gradient-to-br from-white to-accent-50/50 p-2 shadow-sm transition-shadow duration-200 hover:border-accent-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-600 focus-visible:ring-offset-2 sm:p-2.5"
-                  aria-label="Haven Check, go to dashboard"
+                  aria-label={isGuardian(user) ? 'Haven Check, go to family feed' : 'Haven Check, go to dashboard'}
                 >
                   <Image
                     src={LOGO_PATH}

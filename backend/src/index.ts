@@ -7,6 +7,11 @@ import authRoutes from './routes/auth';
 import carerRoutes from './routes/carer';
 import managerRoutes from './routes/manager';
 import adminRoutes from './routes/admin';
+import emarRoutes from './routes/emar';
+import billingRoutes from './routes/billing';
+import payrollRoutes from './routes/payroll';
+import carePlanRoutes from './routes/carePlans';
+import riskRoutes from './routes/risk';
 // Keep legacy routes for backward compatibility (can be removed later)
 import userRoutes from './routes/users';
 import clientRoutes from './routes/clients';
@@ -15,8 +20,13 @@ import scheduleRoutes from './routes/schedules';
 import checklistRoutes from './routes/checklists';
 import noteRoutes from './routes/notes';
 import availabilityRoutes from './routes/availability';
+import incidentRoutes from './routes/incidents';
+import guardianRoutes from './routes/guardian';
 import { prisma } from './lib/prisma';
 import { buildCorsOptions } from './lib/corsConfig';
+import { getUserOrganizationId } from './lib/organization';
+import { auditLogService } from './services/auditLogService';
+import { medicationAlertDetectionService } from './services/medicationAlertDetectionService';
 
 dotenv.config();
 
@@ -30,6 +40,43 @@ if (process.env.TRUST_PROXY === '1') {
 app.use(helmet());
 app.use(cors(buildCorsOptions()));
 app.use(express.json({ limit: '1mb' }));
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const trackedMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+  if (!trackedMethods.has(req.method)) return next();
+
+  res.on('finish', () => {
+    if (!req.path.startsWith('/api/v1/')) return;
+    const actorId = (req as any).userId as string | undefined;
+    const actorRole = (req as any).userRole as any;
+    if (!actorId) return;
+    if (res.statusCode < 200 || res.statusCode >= 400) return;
+
+    void (async () => {
+      try {
+        const organizationId = await getUserOrganizationId(actorId);
+        if (!organizationId) return;
+        await auditLogService.log({
+          organizationId,
+          module: req.path.split('/')[3] || 'system',
+          action: req.method,
+          actorId,
+          actorRole,
+          route: req.path,
+          method: req.method,
+          metadata: {
+            statusCode: res.statusCode,
+            requestId: res.locals.requestId,
+          },
+        });
+      } catch (error) {
+        console.error('audit_log_failed', error);
+      }
+    })();
+  });
+
+  next();
+});
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   const headerId = req.headers['x-request-id'];
@@ -83,6 +130,13 @@ v1Router.use('/auth', authRoutes);
 v1Router.use('/carer', carerRoutes);
 v1Router.use('/manager', managerRoutes);
 v1Router.use('/admin', adminRoutes);
+v1Router.use('/emar', emarRoutes);
+v1Router.use('/billing', billingRoutes);
+v1Router.use('/payroll', payrollRoutes);
+v1Router.use('/care-plans', carePlanRoutes);
+v1Router.use('/risk-assessments', riskRoutes);
+v1Router.use('/incidents', incidentRoutes);
+v1Router.use('/guardian', guardianRoutes);
 app.use('/api/v1', v1Router);
 
 // Legacy routes (for backward compatibility - can be removed after migration)
@@ -91,10 +145,15 @@ app.use('/api/carer', carerRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/visits', visitRoutes);
+app.use('/api/emar', emarRoutes);
+app.use('/api/billing', billingRoutes);
+app.use('/api/payroll', payrollRoutes);
 app.use('/api/schedules', scheduleRoutes);
 app.use('/api/checklists', checklistRoutes);
 app.use('/api/notes', noteRoutes);
 app.use('/api/availability', availabilityRoutes);
+app.use('/api/incidents', incidentRoutes);
+app.use('/api/guardian', guardianRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
@@ -122,3 +181,17 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📡 API v1 available at /api/v1`);
 });
+
+const MED_ALERT_CRON_MS = 15 * 60 * 1000;
+if (process.env.ENABLE_MED_ALERT_CRON === '1') {
+  setInterval(() => {
+    medicationAlertDetectionService.runForAllOrganizations().catch((err) => {
+      console.error(JSON.stringify({ level: 'error', msg: 'med_alert_cron', error: String(err) }));
+    });
+  }, MED_ALERT_CRON_MS);
+  setTimeout(() => {
+    medicationAlertDetectionService.runForAllOrganizations().catch((err) => {
+      console.error(JSON.stringify({ level: 'error', msg: 'med_alert_cron_boot', error: String(err) }));
+    });
+  }, 30_000);
+}

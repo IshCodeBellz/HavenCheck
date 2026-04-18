@@ -7,12 +7,29 @@ import { checklistsService } from '../services/checklists';
 import { getUserOrganizationId } from '../lib/organization';
 import { shiftPostingsService } from '../services/shiftPostings';
 import { prisma } from '../lib/prisma';
+import { notificationService } from '../services/notificationService';
+import { auditLogService } from '../services/auditLogService';
+import complianceRoutes from './compliance';
+import { registerOrgReportingRoutes } from './orgReporting';
 
 const router = express.Router();
 
 // All routes require authentication and manager role
 router.use(authenticate);
 router.use(requireRole('MANAGER', 'ADMIN'));
+
+router.use('/compliance', complianceRoutes);
+
+async function requireManagerOrganizationId(req: AuthRequest, res: express.Response): Promise<string | null> {
+  const organizationId = await getUserOrganizationId(req.userId!);
+  if (!organizationId) {
+    res.status(403).json({ error: 'FORBIDDEN', message: 'No organization assigned' });
+    return null;
+  }
+  return organizationId;
+}
+
+registerOrgReportingRoutes(router, requireManagerOrganizationId);
 
 router.get('/teams/me', async (req: AuthRequest, res) => {
   try {
@@ -66,6 +83,41 @@ router.get('/team-rota/week', async (req: AuthRequest, res) => {
     const rota = await schedulesService.getWeeklyRota(undefined, start);
     res.json(rota);
   } catch (error: any) {
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.get('/team-rota/suggestions/:scheduleId', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await getUserOrganizationId(req.userId!);
+    if (!organizationId) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'No organization assigned' });
+    }
+    const suggestions = await schedulesService.getSmartCandidates(req.params.scheduleId, { organizationId });
+    res.json(suggestions);
+  } catch (error: any) {
+    if (error.status === 404) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: error.message });
+    }
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.patch('/team-rota/reassign/:id', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await getUserOrganizationId(req.userId!);
+    if (!organizationId) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'No organization assigned' });
+    }
+    const schedule = await schedulesService.reassignSchedule(req.params.id, req.body, { organizationId });
+    res.json(schedule);
+  } catch (error: any) {
+    if (error.status === 404) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: error.message });
+    }
+    if (error.status === 400) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: error.message, code: error.code });
+    }
     res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
   }
 });
@@ -344,6 +396,69 @@ router.patch('/checklists/templates/:id', async (req: AuthRequest, res) => {
     if (error.status === 400) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: error.message });
     }
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.post('/messages/carer/:carerId', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await getUserOrganizationId(req.userId!);
+    if (!organizationId) return res.status(403).json({ error: 'FORBIDDEN', message: 'No organization assigned' });
+    const body = String(req.body?.body || '').trim();
+    const subject = req.body?.subject ? String(req.body.subject).trim() : undefined;
+    if (!body) return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Message body is required' });
+    const thread = await notificationService.sendManagerToCarerMessage({
+      organizationId,
+      managerId: req.userId!,
+      carerId: req.params.carerId,
+      body,
+      subject,
+    });
+    await auditLogService.log({
+      organizationId,
+      module: 'messaging',
+      action: 'MANAGER_TO_CARER',
+      entityType: 'MessageThread',
+      entityId: thread.id,
+      actorId: req.userId!,
+      actorRole: req.userRole,
+      route: req.path,
+      method: req.method,
+      metadata: { recipientId: req.params.carerId },
+    });
+    res.status(201).json(thread);
+  } catch (error: any) {
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.post('/messages/broadcast', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await getUserOrganizationId(req.userId!);
+    if (!organizationId) return res.status(403).json({ error: 'FORBIDDEN', message: 'No organization assigned' });
+    const body = String(req.body?.body || '').trim();
+    const subject = req.body?.subject ? String(req.body.subject).trim() : undefined;
+    if (!body) return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Alert body is required' });
+    const thread = await notificationService.sendBroadcastAlert({
+      organizationId,
+      senderId: req.userId!,
+      body,
+      subject,
+    });
+    await auditLogService.log({
+      organizationId,
+      module: 'messaging',
+      action: 'BROADCAST_ALERT',
+      entityType: 'MessageThread',
+      entityId: thread.id,
+      actorId: req.userId!,
+      actorRole: req.userRole,
+      route: req.path,
+      method: req.method,
+      metadata: { messageCount: thread.messages.length },
+    });
+    res.status(201).json(thread);
+  } catch (error: any) {
     res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
   }
 });

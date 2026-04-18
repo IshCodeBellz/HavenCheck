@@ -74,6 +74,10 @@ The API will be available at `http://localhost:3001`
 - `/api/checklists/*` - Checklists
 - `/api/notes/*` - Notes
 
+## API reference
+
+Full `/api/v1` route list: **`API_IMPLEMENTATION.md`**. Legacy `/api` routes: this file’s sections above and **`README.md`** in this folder.
+
 ## Testing
 
 You can test the API using curl or Postman:
@@ -82,7 +86,7 @@ You can test the API using curl or Postman:
 # Login
 curl -X POST http://localhost:3001/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@havenflow.com","password":"admin123"}'
+  -d '{"email":"admin@havenflow.com","organizationCode":"HFL","password":"admin123"}'
 
 # Get current user (use token from login)
 curl http://localhost:3001/api/v1/auth/me \

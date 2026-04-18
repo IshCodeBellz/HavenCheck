@@ -1,6 +1,6 @@
-# Haven Flow Backend API
+# HavenCheck — backend API
 
-Backend REST API for the Haven Flow Carer App.
+Node/Express REST API for HavenCheck: visits and rostering, eMAR, care plans and risk, incidents and guardians, billing and payroll, audit and reporting.
 
 **API v1:** See `API_IMPLEMENTATION.md` for `/api/v1/*` routes. This README lists legacy `/api/*` paths that the web portal and mobile app still use via the shared `/api` base URL.
 
@@ -326,8 +326,23 @@ Notes:
 - `GET /api/visits` - Get visits (filtered by role)
 - `GET /api/visits/today` - Get today's visits
 - `GET /api/visits/:id` - Get visit by ID
+- `GET /api/visits/:id/care-plan` - Active structured **CarePlan** (status `ACTIVE`) for the visit’s client; same org and visit-access rules as `GET /api/visits/:id` (carers: assigned visit only)
 - `POST /api/visits/:id/clock-in` - Clock in
 - `POST /api/visits/:id/clock-out` - Clock out
+- `GET /api/visits/:id/medications` - Active medications for visit client (includes flat `currentStock` / `reorderThreshold` from `MedicationStock` when present)
+- `GET /api/visits/:id/due-medications` - Medications due in visit window (PRN always listed)
+- `POST /api/visits/:id/med-events` - Create medication event (audit log on create; decrements `MedicationStock` when `currentStock` is tracked; low-stock alert + notify when at or below threshold)
+- `PATCH /api/visits/:id/med-events/:eventId` - Blocked (immutable event); audit log only
+- `DELETE /api/visits/:id/med-events/:eventId` - Soft-delete event; audit log
+
+### eMAR (admin, `/api/v1/emar` and `/api/emar`)
+
+- `GET /exceptions?from&to&clientId` - Omitted events and summary
+- `GET /alerts` - Medication alerts (missed, late, PRN misuse, low stock); query `includeAcknowledged=1` to include cleared rows
+- `PATCH /alerts/:alertId/acknowledge` - Acknowledge an alert
+- `POST /alerts/run-detection` - Run detection rules once for the organisation
+
+Optional server env: `ENABLE_MED_ALERT_CRON=1` runs scheduled detection for all organisations (see `src/index.ts`).
 
 ### Schedules
 - `GET /api/schedules` - Get schedules
@@ -336,6 +351,18 @@ Notes:
 - `POST /api/schedules` - Create schedule (Admin/Manager)
 - `PATCH /api/schedules/:id` - Update schedule (Admin/Manager)
 - `DELETE /api/schedules/:id` - Delete schedule (Admin/Manager)
+
+Create/update paths enforce carer availability and, where configured, **client DBS/certification rules** on `User` / `Client`. New optional fields on `Schedule` store **estimated travel** between consecutive visits when lat/lng exist.
+
+### Manager scheduling (v1, `/api/v1/manager`)
+
+Requires `MANAGER` or `ADMIN` JWT (same as other manager routes).
+
+- `GET /api/v1/manager/team-rota/week?start=YYYY-MM-DD` — all carers; schedules grouped by calendar day
+- `GET /api/v1/manager/team-rota/suggestions/:scheduleId` — ranked reassignment candidates
+- `PATCH /api/v1/manager/team-rota/reassign/:id` — body `{ "carerId": "<userId>" }`; rejects overlaps and skill mismatches
+
+Mirrored write paths also exist on `PATCH /api/v1/manager/schedules/:id` for standard schedule updates (org-scoped).
 
 ### Checklists
 - `GET /api/checklists/templates` - Get all templates
@@ -350,6 +377,84 @@ Notes:
 - `POST /api/notes` - Create note
 - `GET /api/notes/:id` - Get note by ID
 
+### Incidents & body maps
+- `POST /api/incidents` - Create incident (category, severity, safeguarding flag, optional visit link)
+- `GET /api/incidents` - List incidents (org scope; optional `clientId`, `status` query)
+- `POST /api/incidents/:incidentId/escalate` - Escalate (MANAGER/ADMIN)
+- `POST /api/incidents/:incidentId/follow-ups` - Add follow-up item
+- `POST /api/incidents/:incidentId/actions` - Add workflow action
+- `POST /api/incidents/body-maps` - Save body map entry (`coordinates` JSON array, optional `images` URLs)
+- `GET /api/incidents/clients/:clientId/body-maps` - List body map entries for a client
+
+Same paths under `/api/v1/incidents`.
+
+### Guardian
+- `POST /api/guardian/invite` — Link guardian user to client; set read-only and feed visibility flags (**MANAGER/ADMIN**)
+- `GET /api/guardian/feed` — **GUARDIAN** only; optional `clientId`, `since` (ISO); merged visits, notes, and incidents allowed by `GuardianLink` (structured JSON for UI)
+- `POST /api/guardian/device` — **GUARDIAN** only; `{ "expoPushToken" }` for mobile push registration
+
+Same paths under `/api/v1/guardian`.
+
+On **visit clock-out** and **incident create**, the server notifies linked guardians (in-app `Message` threads, optional Resend email when configured, Expo push when a token exists). See `src/services/notificationService.ts`.
+
+### Billing & payroll (MANAGER/ADMIN)
+
+Mounted on `/api/v1/billing` and `/api/v1/payroll` (mirrored under `/api/billing` and `/api/payroll`).
+
+**Billing**
+
+- `GET /api/v1/billing/rate-cards` — List rate cards (`?clientId`, `?active`)
+- `POST /api/v1/billing/rate-cards` — Create rate card (hourly or fixed billing; payroll and mileage fields; optional `billingModifiers` JSON)
+- `PATCH /api/v1/billing/rate-cards/:id` — Update rate card
+- `GET /api/v1/billing/invoices` — List invoices (`?clientId`, `?status=`)
+- `POST /api/v1/billing/invoices/generate` — Build invoices from completed visits in a period
+- `GET /api/v1/billing/invoices/:id` — Invoice detail
+- `PATCH /api/v1/billing/invoices/:id` — Update `status` (`DRAFT` | `ISSUED` | `PAID` | `VOID`)
+- `GET /api/v1/billing/invoices/:id/export/xero` — Invoice lines as CSV (Xero-oriented columns)
+- `GET /api/v1/billing/invoices/:id/export/csv` — Same as Xero export
+
+**Payroll**
+
+- `GET /api/v1/payroll/payslips` — List payslips (`?carerId`)
+- `POST /api/v1/payroll/payslips/generate` — Build payslips from completed visits in a period
+- `GET /api/v1/payroll/payslips/:id` — Payslip detail
+- `PATCH /api/v1/payroll/payslips/:id` — Update `status` and/or draft `expenseReimbursements`
+- `PATCH /api/v1/payroll/visits/:visitId/mileage-override` — Set or clear reported miles for a visit
+- `GET /api/v1/payroll/payslips/:id/export/csv` — Payslip line detail as CSV
+
+See root `README.md`, `docs/prd/PRD-004-billing-payroll-reporting-v1.md` (as-built summary), and `API_IMPLEMENTATION.md` for full behaviour.
+
+## Platform (audit, reporting, messaging)
+
+Requires JWT; paths under `/api/v1` unless noted. See `API_IMPLEMENTATION.md` for request/response shapes.
+
+### Admin (ADMIN)
+
+- `GET /api/v1/admin/audit-logs` — org-scoped audit entries (recent window, capped list).
+- `GET /api/v1/admin/reports/enterprise?from&to` — bundled operational and financial metrics (including hours, revenue, payroll costs — see `API_IMPLEMENTATION.md`).
+- `GET /api/v1/admin/reports/ops/*` (+ `/export`) — same operational JSON/CSV reports as on the manager router.
+
+### Manager (MANAGER or ADMIN)
+
+- `POST /api/v1/manager/messages/carer/:carerId` — direct message to one carer (`body`, optional `subject`).
+- `POST /api/v1/manager/messages/broadcast` — alert to all active carers in the org.
+- `GET /api/v1/manager/reports/ops/*` (+ `/export`) — operational reports (missed visits, medication compliance detail, hours delivered, incidents, payroll summary); same paths as under `/api/v1/admin/reports/ops/*`.
+
+### Compliance (MANAGER or ADMIN)
+
+Under `/api/v1/manager/compliance`:
+
+- `GET /dashboard` — compliance aggregates for a date range (incidents, medication compliance, missed visits, risk-style indicators).
+- `GET /inspection-pack` — CSV (ZIP or single file) or PDF export of incidents, medication logs, and care plans; logs `INSPECTION_PACK_EXPORT` to `AuditLog`.
+
+### Carer / guardian inbox
+
+- `GET /api/v1/carer/messages/inbox` — messages addressed to the current **`CARER` or `GUARDIAN`** user.
+
+### Server behaviour
+
+- Successful mutating v1 requests may emit rows in `AuditLog` (middleware). Explicit `AuditLog` rows are also written for incidents, care plan changes, medication events on visits, manager messaging, and compliance inspection exports, in addition to `MedicationAuditLog` for medication rows.
+
 ## Authentication
 
 All protected endpoints require a JWT token in the Authorization header:
@@ -362,6 +467,7 @@ Authorization: Bearer <token>
 - **CARER**: Can view and manage their own visits, schedules, checklists, and notes
 - **MANAGER**: Can view team data and manage clients, schedules, and templates
 - **ADMIN**: Full access to all resources
+- **GUARDIAN**: Read-only access to linked clients via **guardian feed** and **carer inbox** APIs (`GuardianLink` permissions apply to feed contents); cannot clock in or record medications; visit-detail carer routes that require `visit.carerId === userId` remain **carer-only**
 
 ## Database
 

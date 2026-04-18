@@ -8,6 +8,7 @@ import { notesService } from '../services/notes';
 import { availabilityService } from '../services/availability';
 import { getUserOrganizationId } from '../lib/organization';
 import { shiftPostingsService } from '../services/shiftPostings';
+import { notificationService } from '../services/notificationService';
 
 const router = express.Router();
 
@@ -272,6 +273,17 @@ router.delete('/availability/:id', async (req: AuthRequest, res) => {
     if (error.status === 403 || error.status === 404) {
       return res.status(error.status).json({ error: error.status === 403 ? 'FORBIDDEN' : 'NOT_FOUND', message: error.message });
     }
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.get('/messages/inbox', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await getUserOrganizationId(req.userId!);
+    if (!organizationId) return res.status(403).json({ error: 'FORBIDDEN', message: 'No organization assigned' });
+    const messages = await notificationService.getInbox(req.userId!, organizationId);
+    res.json(messages);
+  } catch (error: any) {
     res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
   }
 });

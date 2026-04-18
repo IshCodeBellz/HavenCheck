@@ -14,12 +14,15 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import { UserRole } from '../types';
 import TodayVisitsScreen from '../screens/carer/TodayVisitsScreen';
 import WeeklyRotaScreen from '../screens/carer/WeeklyRotaScreen';
 import HistoryScreen from '../screens/carer/HistoryScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AvailabilityScreen from '../screens/carer/AvailabilityScreen';
 import CarerOpenShiftsScreen from '../screens/carer/CarerOpenShiftsScreen';
+import GuardianFeedScreen from '../screens/guardian/GuardianFeedScreen';
+import GuardianAlertsScreen from '../screens/guardian/GuardianAlertsScreen';
 import { colors } from '../theme/colors';
 
 const Tab = createBottomTabNavigator();
@@ -27,6 +30,7 @@ const DRAWER_WIDTH = Dimensions.get('window').width * 0.85;
 
 const CarerTabs: React.FC = () => {
   const { user } = useAuth();
+  const isGuardian = user?.role === UserRole.GUARDIAN;
   const insets = useSafeAreaInsets();
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -185,31 +189,46 @@ const CarerTabs: React.FC = () => {
           ),
         }}
       >
-        <Tab.Screen
-          name="Today"
-          component={TodayVisitsScreen}
-          options={{ title: "Today's Visits" }}
-        />
-        <Tab.Screen
-          name="WeeklyRota"
-          component={WeeklyRotaScreen}
-          options={{ title: 'Weekly Rota' }}
-        />
-        <Tab.Screen
-          name="OpenShifts"
-          component={CarerOpenShiftsScreen}
-          options={{ title: 'Open shifts' }}
-        />
-        <Tab.Screen
-          name="History"
-          component={HistoryScreen}
-          options={{ title: 'History' }}
-        />
-        <Tab.Screen
-          name="Availability"
-          component={AvailabilityScreen}
-          options={{ title: 'My Availability' }}
-        />
+        {isGuardian ? (
+          <>
+            <Tab.Screen name="GuardianFeed" component={GuardianFeedScreen} options={{ title: 'Family feed' }} />
+            <Tab.Screen name="GuardianAlerts" component={GuardianAlertsScreen} options={{ title: 'Care alerts' }} />
+          </>
+        ) : (
+          <Tab.Screen
+            name="Today"
+            component={TodayVisitsScreen}
+            options={{ title: "Today's Visits" }}
+          />
+        )}
+        {!isGuardian && (
+          <Tab.Screen
+            name="WeeklyRota"
+            component={WeeklyRotaScreen}
+            options={{ title: 'Weekly Rota' }}
+          />
+        )}
+        {!isGuardian && (
+          <Tab.Screen
+            name="OpenShifts"
+            component={CarerOpenShiftsScreen}
+            options={{ title: 'Open shifts' }}
+          />
+        )}
+        {!isGuardian && (
+          <Tab.Screen
+            name="History"
+            component={HistoryScreen}
+            options={{ title: 'History' }}
+          />
+        )}
+        {!isGuardian && (
+          <Tab.Screen
+            name="Availability"
+            component={AvailabilityScreen}
+            options={{ title: 'My Availability' }}
+          />
+        )}
         <Tab.Screen
           name="Profile"
           component={ProfileScreen}

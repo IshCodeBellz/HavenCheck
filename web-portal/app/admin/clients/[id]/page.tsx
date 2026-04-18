@@ -56,6 +56,24 @@ export default function AdminClientDetailPage() {
           >
             Visit history (v1)
           </Link>
+          <Link
+            href={`/admin/clients/${id}/medications`}
+            className="inline-flex items-center rounded-xl border border-navy-200 px-4 py-2 text-sm font-medium text-navy-800 hover:bg-navy-50"
+          >
+            Medications (eMAR setup)
+          </Link>
+          <Link
+            href={`/admin/clients/${id}/care-plan`}
+            className="inline-flex items-center rounded-xl border border-navy-200 px-4 py-2 text-sm font-medium text-navy-800 hover:bg-navy-50"
+          >
+            Care plans
+          </Link>
+          <Link
+            href={`/admin/clients/${id}/risk-assessments`}
+            className="inline-flex items-center rounded-xl border border-navy-200 px-4 py-2 text-sm font-medium text-navy-800 hover:bg-navy-50"
+          >
+            Risk assessments
+          </Link>
         </div>
       </div>
 

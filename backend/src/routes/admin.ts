@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
-import { UserRole } from '@prisma/client';
+import { MedicationEventStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
 import { usersService } from '../services/users';
 import { clientsService } from '../services/clients';
@@ -10,6 +10,11 @@ import { getUserOrganizationId } from '../lib/organization';
 import { shiftPostingsService } from '../services/shiftPostings';
 import { prisma } from '../lib/prisma';
 import { sendEmailVerificationForUser } from '../lib/emailVerification';
+import { buildMedicationEventWhere, escapeCsvField } from '../lib/marReports';
+import { attachStockFields } from '../lib/medicationStockSerialize';
+import { reportingService } from '../services/reportingService';
+import { auditLogService } from '../services/auditLogService';
+import { registerOrgReportingRoutes } from './orgReporting';
 
 const router = express.Router();
 const joinRequestReviewSchema = z.object({
@@ -20,6 +25,22 @@ const teamSchema = z.object({
   name: z.string().trim().min(2),
   managerId: z.string().trim().min(1),
   memberIds: z.array(z.string().trim().min(1)).optional().default([]),
+});
+const medicationSchema = z.object({
+  name: z.string().trim().min(1),
+  dosage: z.string().trim().optional(),
+  instructions: z.string().trim().optional(),
+  isPrn: z.boolean().optional(),
+  currentStock: z.number().int().nonnegative().optional(),
+  reorderThreshold: z.number().int().nonnegative().optional(),
+});
+const medicationScheduleSchema = z.object({
+  timeOfDay: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'timeOfDay must be in HH:mm format'),
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).optional().default([]),
+  isPrn: z.boolean().optional(),
+  active: z.boolean().optional(),
 });
 
 // All routes require authentication and admin role
@@ -628,16 +649,389 @@ router.get('/visits/:id', async (req: AuthRequest, res) => {
 
 router.get('/reports/timesheets', async (req: AuthRequest, res) => {
   try {
-    const { from, to, carerId } = req.query;
+    const organizationId = await requireAdminOrg(req, res);
+    if (!organizationId) return;
+    const { from, to, carerId, clientId } = req.query;
     const data = await visitsService.getTimesheetReport({
+      organizationId,
       from: from as string | undefined,
       to: to as string | undefined,
       carerId: carerId as string | undefined,
+      clientId: clientId as string | undefined,
     });
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
   }
 });
+
+const marEventInclude = {
+  client: { select: { id: true, name: true } },
+  visit: {
+    select: {
+      id: true,
+      scheduledStart: true,
+      scheduledEnd: true,
+      carer: { select: { id: true, name: true } },
+    },
+  },
+  medication: {
+    select: {
+      id: true,
+      name: true,
+      dosage: true,
+      isPrn: true,
+      stock: { select: { currentStock: true, reorderThreshold: true } },
+    },
+  },
+  recordedBy: { select: { id: true, name: true } },
+} as const;
+
+router.get('/reports/mar-chart', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await requireAdminOrg(req, res);
+    if (!organizationId) return;
+
+    const { clientId, from, to, status } = req.query;
+    const where = buildMedicationEventWhere(organizationId, {
+      clientId: clientId as string | undefined,
+      from: from as string | undefined,
+      to: to as string | undefined,
+      status: status as string | undefined,
+    });
+
+    const events = await prisma.medicationEvent.findMany({
+      where,
+      include: marEventInclude,
+      orderBy: { administeredAt: 'desc' },
+      take: 500,
+    });
+
+    res.json(events.map((e) => ({ ...e, medication: attachStockFields(e.medication) })));
+  } catch (error: any) {
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.get('/reports/mar-chart/export', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await requireAdminOrg(req, res);
+    if (!organizationId) return;
+
+    const { clientId, from, to, status } = req.query;
+    const where = buildMedicationEventWhere(organizationId, {
+      clientId: clientId as string | undefined,
+      from: from as string | undefined,
+      to: to as string | undefined,
+      status: status as string | undefined,
+    });
+
+    const events = await prisma.medicationEvent.findMany({
+      where,
+      include: marEventInclude,
+      orderBy: { administeredAt: 'desc' },
+      take: 10000,
+    });
+
+    const flatEvents = events.map((e) => ({ ...e, medication: attachStockFields(e.medication) }));
+
+    const header = [
+      'administeredAt',
+      'clientName',
+      'medicationName',
+      'dosage',
+      'isPrn',
+      'status',
+      'visitId',
+      'scheduledStart',
+      'scheduledEnd',
+      'carerName',
+      'recordedByName',
+      'reasonCode',
+      'prnIndication',
+      'note',
+      'effectivenessNote',
+      'dosageGiven',
+      'signatureImage',
+      'signedAt',
+      'signedByUserId',
+    ].join(',');
+
+    const lines = flatEvents.map((e) =>
+      [
+        e.administeredAt.toISOString(),
+        e.client.name,
+        e.medication.name,
+        e.medication.dosage ?? '',
+        e.medication.isPrn ? 'true' : 'false',
+        e.status,
+        e.visitId,
+        e.visit.scheduledStart?.toISOString() ?? '',
+        e.visit.scheduledEnd?.toISOString() ?? '',
+        e.visit.carer?.name ?? '',
+        e.recordedBy.name,
+        e.reasonCode ?? '',
+        e.prnIndication ?? '',
+        e.note ?? '',
+        e.effectivenessNote ?? '',
+        e.dosageGiven ?? '',
+        e.signatureImage ?? '',
+        e.signedAt?.toISOString() ?? '',
+        e.signedByUserId ?? '',
+      ]
+        .map((v) => escapeCsvField(v))
+        .join(',')
+    );
+
+    const csv = [header, ...lines].join('\r\n');
+    const filename = `mar-export-${organizationId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  } catch (error: any) {
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.get('/reports/medication-compliance', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await requireAdminOrg(req, res);
+    if (!organizationId) return;
+
+    const { clientId, from, to } = req.query;
+    const where = buildMedicationEventWhere(organizationId, {
+      clientId: clientId as string | undefined,
+      from: from as string | undefined,
+      to: to as string | undefined,
+    });
+
+    const byStatus = await prisma.medicationEvent.groupBy({
+      by: ['status'],
+      where,
+      _count: { _all: true },
+    });
+
+    let administered = 0;
+    let omitted = 0;
+    for (const row of byStatus) {
+      if (row.status === MedicationEventStatus.ADMINISTERED) administered = row._count._all;
+      if (row.status === MedicationEventStatus.OMITTED) omitted = row._count._all;
+    }
+    const total = administered + omitted;
+    const administeredRate = total > 0 ? administered / total : 0;
+    const omittedRate = total > 0 ? omitted / total : 0;
+
+    const reasonGroups = await prisma.medicationEvent.groupBy({
+      by: ['reasonCode'],
+      where: {
+        ...where,
+        status: MedicationEventStatus.OMITTED,
+        reasonCode: { not: null },
+      },
+      _count: { _all: true },
+    });
+
+    const topOmissionReasons = reasonGroups
+      .filter((r) => r.reasonCode)
+      .map((r) => ({ reason: r.reasonCode as string, count: r._count._all }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    res.json({
+      totalEvents: total,
+      administered,
+      omitted,
+      administeredRate,
+      omittedRate,
+      topOmissionReasons,
+      filters: {
+        from: (from as string) || null,
+        to: (to as string) || null,
+        clientId: (clientId as string) || null,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.get('/reports/enterprise', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await requireAdminOrg(req, res);
+    if (!organizationId) return;
+    const data = await reportingService.getEnterpriseReports(
+      organizationId,
+      req.query.from as string | undefined,
+      req.query.to as string | undefined
+    );
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.get('/audit-logs', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await requireAdminOrg(req, res);
+    if (!organizationId) return;
+    const logs = await prisma.auditLog.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    res.json(logs);
+  } catch (error: any) {
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.get('/clients/:clientId/medications', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await requireAdminOrg(req, res);
+    if (!organizationId) return;
+
+    const client = await prisma.client.findFirst({
+      where: { id: req.params.clientId, organizationId },
+      select: { id: true },
+    });
+    if (!client) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Client not found' });
+    }
+
+    const medications = await prisma.medication.findMany({
+      where: { clientId: client.id, organizationId },
+      include: {
+        stock: true,
+        schedules: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(medications.map((m) => attachStockFields(m)));
+  } catch (error: any) {
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.post('/clients/:clientId/medications', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await requireAdminOrg(req, res);
+    if (!organizationId) return;
+    const payload = medicationSchema.parse(req.body);
+
+    const client = await prisma.client.findFirst({
+      where: { id: req.params.clientId, organizationId },
+      select: { id: true },
+    });
+    if (!client) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Client not found' });
+    }
+
+    const medication = await prisma.medication.create({
+      data: {
+        organizationId,
+        clientId: client.id,
+        name: payload.name,
+        dosage: payload.dosage || null,
+        instructions: payload.instructions || null,
+        isPrn: payload.isPrn ?? false,
+        ...(payload.currentStock !== undefined || payload.reorderThreshold !== undefined
+          ? {
+              stock: {
+                create: {
+                  currentStock: payload.currentStock ?? null,
+                  reorderThreshold: payload.reorderThreshold ?? null,
+                },
+              },
+            }
+          : {}),
+      },
+      include: { stock: true },
+    });
+
+    await prisma.medicationAuditLog.create({
+      data: {
+        organizationId,
+        medicationId: medication.id,
+        action: 'MEDICATION_CREATED',
+        actorId: req.userId!,
+        payload: {
+          clientId: client.id,
+          name: medication.name,
+        },
+      },
+    });
+
+    res.status(201).json(attachStockFields(medication));
+    await auditLogService.log({
+      organizationId,
+      module: 'medication',
+      action: 'CREATE',
+      entityType: 'Medication',
+      entityId: medication.id,
+      actorId: req.userId!,
+      actorRole: req.userRole,
+      route: req.path,
+      method: req.method,
+      afterData: medication,
+    });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: error.errors[0]?.message });
+    }
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+router.post('/medications/:medicationId/schedules', async (req: AuthRequest, res) => {
+  try {
+    const organizationId = await requireAdminOrg(req, res);
+    if (!organizationId) return;
+    const payload = medicationScheduleSchema.parse(req.body);
+
+    const medication = await prisma.medication.findFirst({
+      where: { id: req.params.medicationId, organizationId },
+      select: { id: true, clientId: true },
+    });
+    if (!medication) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Medication not found' });
+    }
+
+    const schedule = await prisma.medicationSchedule.create({
+      data: {
+        organizationId,
+        medicationId: medication.id,
+        timeOfDay: payload.timeOfDay,
+        daysOfWeek: payload.daysOfWeek.map(String),
+        isPrn: payload.isPrn ?? false,
+        active: payload.active ?? true,
+      },
+    });
+
+    await prisma.medicationAuditLog.create({
+      data: {
+        organizationId,
+        medicationId: medication.id,
+        action: 'MEDICATION_SCHEDULE_CREATED',
+        actorId: req.userId!,
+        payload: {
+          scheduleId: schedule.id,
+          timeOfDay: schedule.timeOfDay,
+          daysOfWeek: schedule.daysOfWeek,
+        },
+      },
+    });
+
+    res.status(201).json(schedule);
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: error.errors[0]?.message });
+    }
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: error.message });
+  }
+});
+
+registerOrgReportingRoutes(router, requireAdminOrg);
 
 export default router;

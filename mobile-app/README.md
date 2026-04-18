@@ -1,78 +1,59 @@
-# Haven Flow Mobile App
+# HavenCheck — mobile app
 
-React Native mobile app built with Expo for Haven Flow care staff.
+React Native (Expo) client for the HavenCheck API.
 
-## Features
+## Overview
 
-- **Role-based authentication** (Carer, Manager, Admin)
-- **Today's visits** - View and manage daily visits
-- **Weekly rota** - View scheduled shifts for the week
-- **Clock in/out** - GPS-enabled clock in/out at client locations
-- **Care checklists** - Complete care checklists during visits
-- **Notes & handover** - Add notes and handover information
-- **Visit history** - View past visits
+The app authenticates against the same JWT API as the web portal. After login, **role** selects the navigator: carer/guardian (`CarerTabs`), manager (`ManagerTabs`), or admin (`AdminTabs`).
 
-## Setup
+## Key capabilities
 
-1. Install dependencies:
-```bash
-npm install
-```
+### Carer
 
-2. Configure environment variables:
+* Today’s visits, weekly schedule, visit history  
+* Visit detail: clock in/out (GPS), checklists, notes, medication due list and events (PRN and signature fields when required), link to read-only care plan summary when enabled  
+* Open shifts (browse, apply, withdraw)  
+* Availability windows  
+* Offline queue for failed clock and medication-event requests (`src/services/offline/`)
 
-Create `.env` (or `.env.local`) in `mobile-app/`:
-```bash
-# Optional: explicit API origin. If omitted in dev, the app auto-detects Expo host IP.
-EXPO_PUBLIC_API_ORIGIN=http://localhost:3001
+### Guardian
 
-# Optional: custom dev backend port when host auto-detection is used
-EXPO_PUBLIC_API_PORT=3001
-```
+* **Family feed** tab — structured cards for visits, notes, and incidents; polling; optional Expo push token registration (`expo-notifications`)  
+* **Care alerts** tab — `GET /api/v1/carer/messages/inbox`  
+* No carer-only tabs (rota, open shifts, history) in the guardian navigator
 
-The app builds API URLs from origin + route prefixes:
-- Legacy API: `${API_ORIGIN}/api`
-- v1 API: `${API_ORIGIN}/api/v1`
+### Manager
 
-3. Start the development server:
-```bash
-npm start
-```
+* Tabs: Dashboard, Clients, Carers  
+* Drawer: open shifts, schedules, visits, checklists, availability, profile (same underlying screens as much of the admin mobile surface)
 
-4. Run on iOS/Android:
-```bash
-npm run ios
-# or
-npm run android
-```
+### Admin
 
-## Project Structure
+* Visible tabs: Dashboard, Clients, Carers  
+* Drawer: open shifts, schedules, visits, checklists, availability (`AdminAvailabilityScreen`), profile  
+* Additional stack screens (e.g. open-shift detail) as registered in `AppNavigator`
+
+## How it works
+
+1. Configure `EXPO_PUBLIC_API_ORIGIN` (and optional `EXPO_PUBLIC_API_PORT`) or rely on dev auto-detection — see `src/services/api.ts`.  
+2. `npm install` then `npm start`.  
+3. Sign in with email, password, and organisation code (seed uses **`HFL`**).
+
+## Test credentials (seed)
+
+| Role    | Email                 | Password  |
+|---------|----------------------|-----------|
+| Admin   | admin@havenflow.com  | admin123  |
+| Manager | manager@havenflow.com | manager123 |
+| Carer   | carer1@havenflow.com | carer123  |
+
+## Project structure
 
 ```
 src/
-  ├── screens/          # Screen components
-  │   ├── carer/       # Carer-specific screens
-  │   ├── manager/     # Manager-specific screens
-  │   └── ...
-  ├── navigation/      # Navigation configuration
-  ├── services/        # API service functions
-  ├── context/         # React context providers
-  ├── types/           # TypeScript type definitions
-  └── components/      # Reusable components
+  ├── screens/       # carer/, guardian/, admin/, staff/, …
+  ├── navigation/    # AppNavigator, CarerTabs, ManagerTabs, AdminTabs
+  ├── services/      # api.ts, guardian.ts, visits, offline helpers
+  ├── context/       # AuthContext
+  └── components/    # Shared UI (e.g. ESignature, SignatureCapture)
 ```
-
-## Environment Variables
-
-API origin resolution order:
-1. `EXPO_PUBLIC_API_ORIGIN` (if set)
-2. Production fallback when `__DEV__` is false (`https://api.havenflow.com`)
-3. In development, Expo host auto-detection + `EXPO_PUBLIC_API_PORT` (defaults to `3001`)
-4. Final fallback: `http://localhost:3001`
-
-## Testing
-
-Test credentials (from backend seed):
-- Carer: `carer1@havenflow.com` / `carer123`
-- Manager: `manager@havenflow.com` / `manager123`
-- Admin: `admin@havenflow.com` / `admin123`
-

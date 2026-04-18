@@ -1,64 +1,62 @@
-# Haven Flow Web Portal
+# HavenCheck — web portal
 
-Next.js web portal for Haven Flow carers, managers, and admins.
+Next.js application for carers, managers, admins, and guardians on the HavenCheck API.
 
-## Features
+## Overview
 
-**Carers (web)** sign in with the same account as the mobile app. They see **My day**, **My visits**, **My roster** (read-only), and **Availability**, and can **clock in/out** and **add notes** on visit details (browser location).
+JWT auth (`localStorage`) and Axios (`lib/api.ts`) call the backend at `NEXT_PUBLIC_API_URL` (defaults to `http://localhost:3001/api`). Role-specific navigation is defined in `components/Layout.tsx`.
 
-**Managers & admins** additionally get **Clients**, **Carers**, full **Schedules** (create/edit/delete), **Checklists** (templates), and the org-wide **Dashboard**.
+## Key capabilities
 
-## Setup
+### Carer (web)
 
-1. Install dependencies:
+* **My day** (`/dashboard`), **My visits** (`/visits`), **My roster** (`/schedules`), **Open shifts** (`/open-shifts`), **Availability** (`/availability`)  
+* Visit detail: clock in/out (browser geolocation), notes (`/visits/[id]`)
+
+### Guardian (web)
+
+* **Family feed** (`/guardian`)  
+* **Care alerts** (`/messages`) — same inbox API as mobile (`GET /api/v1/carer/messages/inbox`)  
+* Nav: Family feed + Care alerts; logo targets `/guardian`; `/dashboard` redirects guardians to the feed
+
+### Manager
+
+* Team overview, team rota, open shifts, compliance, reports (`/manager/*`) plus shared staff routes (clients, carers, schedules, visits, checklists, availability)
+
+### Admin
+
+* `/admin/*` — clients (profile JSON, medications, care plan, risk), carers, schedules, visits, MAR, care-plan review queue, risk templates, billing, payroll, reports, guardians, etc.
+
+### Optional Supabase middleware
+
+`middleware.ts` wires `utils/supabase/middleware.ts`. If `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`) are **absent**, middleware skips Supabase session work; core HavenCheck pages use the REST API only. The browser helper `utils/supabase/client.ts` is not imported by default app routes—add keys only if you extend the app with Supabase-backed pages.
+
+## How it works
+
 ```bash
+cd web-portal
 npm install
+# .env.local — minimum:
+echo 'NEXT_PUBLIC_API_URL=http://localhost:3001/api' > .env.local
+npm run dev   # http://localhost:3000
 ```
 
-2. Set environment variables:
-Create a `.env.local` file:
-```
-NEXT_PUBLIC_API_URL=http://localhost:3001/api
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
-# Optional fallback key name supported by the app:
-# NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-```
-
-3. Run development server:
-```bash
-npm run dev
-```
-
-The app will be available at `http://localhost:3000`
-
-## Project Structure
+## Project structure (high level)
 
 ```
 app/
-  ├── dashboard/     # Dashboard page
-  ├── clients/       # Clients management
-  ├── carers/        # Carers management
-  ├── schedules/     # Schedules management
-  ├── visits/        # Visits listing
-  ├── checklists/    # Checklist templates
-  ├── availability/  # Carer availability
-  └── login/         # Login page
-lib/
-  ├── api.ts       # API client
-  └── auth.ts      # Authentication utilities
+  ├── dashboard/       # Carer "my day"
+  ├── visits/          # Lists + [id] detail
+  ├── schedules/       # Roster
+  ├── guardian/        # Family feed
+  ├── messages/        # Care alerts inbox
+  ├── manager/         # Overview, team-rota, open-shifts, compliance, reports
+  ├── admin/           # Full admin subtree
+  ├── incidents/       # Staff incidents + body maps
+  └── login/           # Auth entry
 components/
-  └── Layout.tsx   # Main layout component
+  └── Layout.tsx       # Primary navigation shell
+lib/
+  ├── api.ts           # Axios client → NEXT_PUBLIC_API_URL
+  └── auth.ts          # Session helpers
 ```
-
-## Authentication
-
-The app uses JWT tokens stored in localStorage. Protected routes should check authentication status.
-
-## Supabase Notes
-
-Supabase client initialization expects:
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`)
-
-If these are missing, the app throws a startup error in Supabase utility modules.

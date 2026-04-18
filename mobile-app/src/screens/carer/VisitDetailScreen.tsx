@@ -13,16 +13,21 @@ import {
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
+import { useAuth } from '../../context/AuthContext';
 import { visitsService } from '../../services/visits';
-import { Visit, VisitStatus } from '../../types';
+import { Medication, MedicationEventStatus, MedicationSchedule, UserRole, Visit, VisitStatus } from '../../types';
 import { format } from 'date-fns';
 import { colors } from '../../theme/colors';
+import { SignatureCapture } from '../../components/Medication/SignatureCapture';
 
 const VisitDetailScreen: React.FC = () => {
   const route = useRoute();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const { visitId } = route.params as { visitId: string };
+  const canViewCarePlan =
+    user?.role === UserRole.CARER || user?.role === UserRole.MANAGER || user?.role === UserRole.ADMIN;
 
   const [visit, setVisit] = useState<Visit | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,6 +35,15 @@ const VisitDetailScreen: React.FC = () => {
   const [showLateReasonModal, setShowLateReasonModal] = useState(false);
   const [lateReason, setLateReason] = useState('');
   const [pendingLocation, setPendingLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [medications, setMedications] = useState<(Medication & { schedules: MedicationSchedule[] })[]>([]);
+  const [selectedMedicationId, setSelectedMedicationId] = useState<string>('');
+  const [medEventStatus, setMedEventStatus] = useState<MedicationEventStatus>(MedicationEventStatus.ADMINISTERED);
+  const [medReasonCode, setMedReasonCode] = useState('');
+  const [medNote, setMedNote] = useState('');
+  const [prnIndication, setPrnIndication] = useState('');
+  const [prnDosageGiven, setPrnDosageGiven] = useState('');
+  const [signatureName, setSignatureName] = useState('');
+  const [effectivenessNote, setEffectivenessNote] = useState('');
 
   useEffect(() => {
     loadVisit();
@@ -37,13 +51,81 @@ const VisitDetailScreen: React.FC = () => {
 
   const loadVisit = async () => {
     try {
-      const data = await visitsService.getVisitById(visitId);
+      const [data, meds] = await Promise.all([
+        visitsService.getVisitById(visitId),
+        visitsService.getDueVisitMedications(visitId),
+      ]);
       setVisit(data);
+      setMedications(meds);
+      if (meds.length > 0) {
+        setSelectedMedicationId(meds[0].id);
+      }
     } catch (error) {
       console.error('Error loading visit:', error);
       Alert.alert('Error', 'Failed to load visit details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRecordMedication = async () => {
+    if (!selectedMedicationId) {
+      Alert.alert('Missing medication', 'Select a medication first');
+      return;
+    }
+    if (medEventStatus === MedicationEventStatus.OMITTED && !medReasonCode.trim()) {
+      Alert.alert('Reason required', 'Provide a reason code when medication is omitted');
+      return;
+    }
+    const selectedMedication = medications.find((m) => m.id === selectedMedicationId);
+    if (selectedMedication?.isPrn && medEventStatus === MedicationEventStatus.ADMINISTERED && !prnIndication.trim()) {
+      Alert.alert('PRN indication required', 'Provide a PRN indication before recording this medication');
+      return;
+    }
+    if (selectedMedication?.isPrn && medEventStatus === MedicationEventStatus.ADMINISTERED && !prnDosageGiven.trim()) {
+      Alert.alert('PRN dosage required', 'Provide the dosage given for this PRN administration');
+      return;
+    }
+    if (medEventStatus === MedicationEventStatus.ADMINISTERED && !signatureName.trim()) {
+      Alert.alert('Signature required', 'A signature is required when medication is administered');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      await visitsService.createMedicationEvent(visitId, {
+        medicationId: selectedMedicationId,
+        status: medEventStatus,
+        reasonCode: medEventStatus === MedicationEventStatus.OMITTED ? medReasonCode.trim() : undefined,
+        note: medNote.trim() || undefined,
+        prnIndication:
+          selectedMedication?.isPrn && medEventStatus === MedicationEventStatus.ADMINISTERED
+            ? prnIndication.trim()
+            : undefined,
+        dosageGiven:
+          selectedMedication?.isPrn && medEventStatus === MedicationEventStatus.ADMINISTERED
+            ? prnDosageGiven.trim()
+            : undefined,
+        signatureImage:
+          medEventStatus === MedicationEventStatus.ADMINISTERED
+            ? `signed://typed/${encodeURIComponent(signatureName.trim())}`
+            : undefined,
+        effectivenessNote: effectivenessNote.trim() || undefined,
+      });
+
+      Alert.alert('Saved', 'Medication event has been recorded');
+      setMedNote('');
+      setMedReasonCode('');
+      setPrnIndication('');
+      setPrnDosageGiven('');
+      setSignatureName('');
+      setEffectivenessNote('');
+      const refreshed = await visitsService.getVisitById(visitId);
+      setVisit(refreshed);
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.error || 'Failed to record medication event');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -187,6 +269,19 @@ const VisitDetailScreen: React.FC = () => {
       <View style={styles.card}>
         <Text style={styles.clientName}>{visit.client.name}</Text>
         <Text style={styles.address}>{visit.client.address}</Text>
+        {canViewCarePlan && (
+          <TouchableOpacity
+            style={styles.carePlanLink}
+            onPress={() =>
+              (navigation as unknown as { navigate: (name: string, params?: { visitId: string }) => void }).navigate(
+                'CarePlanSummary',
+                { visitId }
+              )
+            }
+          >
+            <Text style={styles.carePlanLinkText}>View active care plan</Text>
+          </TouchableOpacity>
+        )}
 
         {visit.scheduledStart && (
           <View style={styles.timeSection}>
@@ -264,6 +359,116 @@ const VisitDetailScreen: React.FC = () => {
         >
           <Text style={styles.actionButtonText}>Notes & Handover</Text>
         </TouchableOpacity>
+
+        <View style={styles.medSection}>
+          <Text style={styles.medSectionTitle}>Medication</Text>
+          <Text style={styles.medHint}>
+            Doses shown here match this visit window (scheduled time ±75 minutes). PRN medications always appear.
+          </Text>
+          {medications.length === 0 ? (
+            <Text style={styles.medEmptyText}>No active medications configured for this client.</Text>
+          ) : (
+            <>
+              <Text style={styles.medLabel}>Select medication</Text>
+              {medications.map((med) => (
+                <TouchableOpacity
+                  key={med.id}
+                  style={[
+                    styles.medOption,
+                    selectedMedicationId === med.id && styles.medOptionSelected,
+                  ]}
+                  onPress={() => setSelectedMedicationId(med.id)}
+                >
+                  <Text style={styles.medOptionTitle}>{med.name}</Text>
+                  {!!med.dosage && <Text style={styles.medOptionSub}>{med.dosage}</Text>}
+                </TouchableOpacity>
+              ))}
+
+              <Text style={styles.medLabel}>Outcome</Text>
+              <View style={styles.medStatusRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.medStatusButton,
+                    medEventStatus === MedicationEventStatus.ADMINISTERED && styles.medStatusButtonActive,
+                  ]}
+                  onPress={() => setMedEventStatus(MedicationEventStatus.ADMINISTERED)}
+                >
+                  <Text style={styles.medStatusText}>Administered</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.medStatusButton,
+                    medEventStatus === MedicationEventStatus.OMITTED && styles.medStatusButtonActive,
+                  ]}
+                  onPress={() => setMedEventStatus(MedicationEventStatus.OMITTED)}
+                >
+                  <Text style={styles.medStatusText}>Omitted</Text>
+                </TouchableOpacity>
+              </View>
+
+              {medEventStatus === MedicationEventStatus.OMITTED && (
+                <TextInput
+                  style={styles.medInput}
+                  placeholder="Reason code (required)"
+                  value={medReasonCode}
+                  onChangeText={setMedReasonCode}
+                />
+              )}
+
+              {medications.find((m) => m.id === selectedMedicationId)?.isPrn &&
+                medEventStatus === MedicationEventStatus.ADMINISTERED && (
+                  <>
+                    <TextInput
+                      style={styles.medInput}
+                      placeholder="PRN indication (required)"
+                      value={prnIndication}
+                      onChangeText={setPrnIndication}
+                    />
+                    <TextInput
+                      style={styles.medInput}
+                      placeholder="Dosage given (required)"
+                      value={prnDosageGiven}
+                      onChangeText={setPrnDosageGiven}
+                    />
+                  </>
+                )}
+
+              {medEventStatus === MedicationEventStatus.ADMINISTERED && (
+                <SignatureCapture value={signatureName} onChange={setSignatureName} required />
+              )}
+
+              <TextInput
+                style={[styles.medInput, styles.medInputMultiline]}
+                placeholder="Optional medication note"
+                value={medNote}
+                onChangeText={setMedNote}
+                multiline
+                numberOfLines={3}
+              />
+
+              <TextInput
+                style={[styles.medInput, styles.medInputMultiline]}
+                placeholder="Optional effectiveness note"
+                value={effectivenessNote}
+                onChangeText={setEffectivenessNote}
+                multiline
+                numberOfLines={3}
+              />
+
+              <TouchableOpacity
+                style={[styles.button, styles.medSaveButton]}
+                onPress={handleRecordMedication}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.buttonText}>Record Medication</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
       </View>
 
       <Modal
@@ -353,7 +558,20 @@ const styles = StyleSheet.create({
   address: {
     fontSize: 16,
     color: colors.textSecondary,
-    marginBottom: 20,
+    marginBottom: 12,
+  },
+  carePlanLink: {
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: colors.primary + '18',
+  },
+  carePlanLinkText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.primary,
   },
   timeSection: {
     marginBottom: 16,
@@ -460,6 +678,94 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.foreground,
+  },
+  medSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  medSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.foreground,
+    marginBottom: 6,
+  },
+  medHint: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 10,
+    lineHeight: 16,
+  },
+  medEmptyText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  medLabel: {
+    fontSize: 14,
+    color: colors.textMuted,
+    marginBottom: 8,
+    marginTop: 6,
+  },
+  medOption: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+  },
+  medOptionSelected: {
+    borderColor: colors.primary,
+    backgroundColor: '#EEF5FF',
+  },
+  medOptionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  medOptionSub: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  medStatusRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  medStatusButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  medStatusButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#EEF5FF',
+  },
+  medStatusText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  medInput: {
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  medInputMultiline: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  medSaveButton: {
+    backgroundColor: colors.primary,
+    marginBottom: 0,
   },
 });
 

@@ -13,6 +13,7 @@ import CarerTabs from './CarerTabs';
 import ManagerTabs from './ManagerTabs';
 import AdminTabs from './AdminTabs';
 import VisitDetailScreen from '../screens/carer/VisitDetailScreen';
+import CarePlanSummaryScreen from '../screens/carer/CarePlanSummaryScreen';
 import ChecklistScreen from '../screens/carer/ChecklistScreen';
 import NotesScreen from '../screens/carer/NotesScreen';
 import SchedulesScreen from '../screens/admin/SchedulesScreen';
@@ -66,6 +67,11 @@ const AppNavigator: React.FC = () => {
               <>
                 <Stack.Screen name="CarerTabs" component={CarerTabs} />
                 <Stack.Screen name="VisitDetail" component={VisitDetailScreen} />
+                <Stack.Screen
+                  name="CarePlanSummary"
+                  component={CarePlanSummaryScreen}
+                  options={{ headerShown: true, title: 'Care plan' }}
+                />
                 <Stack.Screen name="Checklist" component={ChecklistScreen} />
                 <Stack.Screen name="Notes" component={NotesScreen} />
               </>
@@ -74,6 +80,11 @@ const AppNavigator: React.FC = () => {
               <>
                 <Stack.Screen name="ManagerTabs" component={ManagerTabs} />
                 <Stack.Screen name="VisitDetail" component={VisitDetailScreen} />
+                <Stack.Screen
+                  name="CarePlanSummary"
+                  component={CarePlanSummaryScreen}
+                  options={{ headerShown: true, title: 'Care plan' }}
+                />
                 <Stack.Screen name="Schedules" component={SchedulesScreen} />
                 <Stack.Screen name="Visits" component={VisitsScreen} />
                 <Stack.Screen name="Checklists" component={ChecklistsScreen} />
@@ -86,6 +97,11 @@ const AppNavigator: React.FC = () => {
               <>
                 <Stack.Screen name="AdminTabs" component={AdminTabs} />
                 <Stack.Screen name="VisitDetail" component={VisitDetailScreen} />
+                <Stack.Screen
+                  name="CarePlanSummary"
+                  component={CarePlanSummaryScreen}
+                  options={{ headerShown: true, title: 'Care plan' }}
+                />
                 <Stack.Screen name="Schedules" component={SchedulesScreen} />
                 <Stack.Screen name="Visits" component={VisitsScreen} />
                 <Stack.Screen name="Checklists" component={ChecklistsScreen} />

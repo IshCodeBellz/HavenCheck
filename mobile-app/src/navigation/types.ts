@@ -4,6 +4,7 @@ export type RootStackParamList = {
   ManagerTabs: undefined;
   AdminTabs: undefined;
   VisitDetail: { visitId: string };
+  CarePlanSummary: { visitId: string };
   Checklist: { visitId: string; clientId?: string };
   Notes: { visitId: string };
   Schedules: undefined;

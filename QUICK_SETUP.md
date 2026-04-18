@@ -1,20 +1,20 @@
-# Quick Setup Guide
-## Get Your App Ready for Testing in 5 Minutes
+# HavenCheck — quick setup
 
-This guide will help you set up the Haven Flow Carer App for testing.
+Get the stack running locally for development and testing (about five minutes).
 
 ---
 
 ## Prerequisites Check
 
 Before starting, ensure you have:
-- ✅ Node.js installed (v20 or higher; use the current LTS if unsure)
-- ✅ PostgreSQL installed and running
-- ✅ npm or yarn package manager
+
+- Node.js installed (v20 or higher; use the current LTS if unsure)
+- PostgreSQL installed and running
+- npm or yarn package manager
 
 ---
 
-## Step 1: Backend Setup (3 minutes)
+## Step 1: Backend setup (about 3 minutes)
 
 ### 1.1 Navigate to Backend
 ```bash
@@ -76,7 +76,7 @@ This creates:
 npm run dev
 ```
 
-✅ Backend should now be running at `http://localhost:3001`
+Backend should now be running at `http://localhost:3001`
 
 **Test it:**
 ```bash
@@ -87,7 +87,7 @@ Should return: `{"status":"ok","timestamp":"..."}`
 
 ---
 
-## Step 2: Web Portal Setup (1 minute)
+## Step 2: Web portal setup (about 1 minute)
 
 ### 2.1 Navigate to Web Portal
 ```bash
@@ -110,11 +110,11 @@ echo 'NEXT_PUBLIC_API_URL=http://localhost:3001/api' > .env.local
 npm run dev
 ```
 
-✅ Web portal should now be running at `http://localhost:3000`
+Web portal should now be running at `http://localhost:3000`
 
 ---
 
-## Step 3: Mobile App Setup (1 minute)
+## Step 3: Mobile app setup (about 1 minute)
 
 ### 3.1 Navigate to Mobile App
 ```bash
@@ -138,12 +138,12 @@ This will open Expo DevTools. Then:
 
 ---
 
-## ✅ Verification Checklist
+## Verification checklist
 
 ### Backend
 - [ ] Server starts without errors
 - [ ] Health check returns OK: `curl http://localhost:3001/health`
-- [ ] Can login: `curl -X POST http://localhost:3001/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"admin@havenflow.com","password":"admin123"}'`
+- [ ] Can login (seed org code is `HFL`): `curl -X POST http://localhost:3001/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"admin@havenflow.com","organizationCode":"HFL","password":"admin123"}'`
 
 ### Web Portal
 - [ ] Server starts without errors
@@ -203,7 +203,7 @@ curl http://localhost:3001/health
 # Login as admin
 curl -X POST http://localhost:3001/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@havenflow.com","password":"admin123"}'
+  -d '{"email":"admin@havenflow.com","organizationCode":"HFL","password":"admin123"}'
 
 # Get current user (replace YOUR_TOKEN with token from login)
 curl http://localhost:3001/api/v1/auth/me \
@@ -212,26 +212,25 @@ curl http://localhost:3001/api/v1/auth/me \
 
 ---
 
-## Next Steps
+## Next steps
 
 Once everything is running:
 
-1. **Test Login** - Try logging in with each role (Admin, Manager, Carer)
-2. **Test Mobile App** - Complete a visit flow (clock in, checklist, notes)
-3. **Test Web Portal** - Create a client, assign schedules, view visits
-4. **Review Documentation** - Check `TESTING_READINESS_REPORT.md` for detailed testing guide
+1. Sign in as each role and confirm you reach the expected home screen (web and mobile).
+2. On **mobile**, open a seeded visit: clock in, submit a checklist if configured, add a note, clock out.
+3. On **web**, create or edit a client, open schedules or visits, and open **Admin → MAR** if you use medications. As **manager**, open **Compliance** (`/manager/compliance`) to confirm the dashboard loads for a date range.
+4. Read **`README.md`** and **`backend/API_IMPLEMENTATION.md`** for supported features and HTTP routes.
+5. For billing or payroll CSVs, complete visits with clock-in/out, configure rate cards in the API or UI, then use **Admin → Billing** or **Admin → Payroll**.
 
 ---
 
-## Need Help?
+## Need help?
 
-- Check `SETUP.md` in backend directory for detailed setup
-- Review `TESTING_READINESS_REPORT.md` for comprehensive testing guide
-- Check API documentation in `backend/API_IMPLEMENTATION.md`
+- `backend/SETUP.md` — backend detail  
+- `TESTING_READINESS_REPORT.md` — QA scope and prerequisites  
+- `backend/API_IMPLEMENTATION.md` — API tables  
 
 ---
 
-**Setup Complete!** 🎉
-
-Your app should now be ready for testing. Start with the backend, then web portal, then mobile app.
+Setup is complete when health checks pass and you can sign in with the seeded users.
 

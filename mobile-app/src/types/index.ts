@@ -14,6 +14,11 @@ export enum VisitStatus {
   LATE = 'LATE',
 }
 
+export enum MedicationEventStatus {
+  ADMINISTERED = 'ADMINISTERED',
+  OMITTED = 'OMITTED',
+}
+
 export enum NoteType {
   GENERAL = 'GENERAL',
   INCIDENT = 'INCIDENT',
@@ -75,8 +80,51 @@ export interface Visit {
   clockOutLng?: number;
   withinGeofence?: boolean;
   status: VisitStatus;
+  medicationEvents?: MedicationEvent[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Medication {
+  id: string;
+  name: string;
+  dosage?: string | null;
+  instructions?: string | null;
+  isPrn: boolean;
+  currentStock?: number | null;
+  reorderThreshold?: number | null;
+  active: boolean;
+}
+
+export interface MedicationSchedule {
+  id: string;
+  medicationId: string;
+  timeOfDay: string;
+  daysOfWeek: string[];
+  isPrn?: boolean;
+  active: boolean;
+}
+
+export interface MedicationEvent {
+  id: string;
+  medicationId: string;
+  scheduleId?: string | null;
+  status: MedicationEventStatus;
+  note?: string | null;
+  reasonCode?: string | null;
+  prnIndication?: string | null;
+  dosageGiven?: string | null;
+  signatureImage?: string | null;
+  signedAt?: string | null;
+  signedByUserId?: string | null;
+  effectivenessNote?: string | null;
+  administeredAt: string;
+  medication: Medication;
+  schedule?: MedicationSchedule | null;
+  recordedBy?: {
+    id: string;
+    name: string;
+  };
 }
 
 export interface Schedule {
@@ -186,5 +234,27 @@ export interface Note {
   priority: NotePriority;
   text: string;
   createdAt: string;
+}
+
+/** GET /api/visits/:id/care-plan — active structured care plan for visit client. */
+export interface VisitCarePlanSection {
+  id: string;
+  sectionType: string;
+  title: string;
+  body: string;
+}
+
+export interface VisitCarePlanSnapshot {
+  client: { id: string; name: string };
+  carePlan: {
+    id: string;
+    status: string;
+    reviewDate: string | null;
+    currentVersion: {
+      version: number;
+      summary: string | null;
+      sections: VisitCarePlanSection[];
+    } | null;
+  } | null;
 }
 

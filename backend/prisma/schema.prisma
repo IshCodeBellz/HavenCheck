@@ -76,6 +76,13 @@ enum MedicationEventStatus {
   OMITTED
 }
 
+enum MedicationAlertType {
+  MISSED_MEDICATION
+  LATE_MEDICATION
+  PRN_MISUSE
+  LOW_STOCK
+}
+
 enum IncidentSeverity {
   LOW
   MEDIUM
@@ -147,6 +154,8 @@ model User {
   preferredClientIds String[]      @default([])
   /// Set when the user completes email verification; required before first login.
   emailVerifiedAt    DateTime?
+  /// Expo push token for mobile care alerts (family app).
+  expoPushToken      String?
   organizationId     String?
   organization       Organization? @relation(fields: [organizationId], references: [id])
 
@@ -180,6 +189,7 @@ model User {
   guardianLinks             GuardianLink[]            @relation("GuardianUserLinks")
   guardianFeedEventsCreated GuardianFeedEvent[]       @relation("GuardianFeedCreatedBy")
   payslips                  Payslip[]
+  medicationAlertsAcknowledged MedicationAlert[]     @relation("MedicationAlertAckBy")
 
   @@index([organizationId])
 }
@@ -226,6 +236,7 @@ model Organization {
   rateCards           RateCard[]
   invoices            Invoice[]
   payslips            Payslip[]
+  medicationAlerts    MedicationAlert[]
 }
 
 model Client {
@@ -265,6 +276,7 @@ model Client {
   guardianFeedEvents GuardianFeedEvent[]
   rateCards          RateCard[]
   invoices           Invoice[]
+  medicationAlerts   MedicationAlert[]
 
   @@index([organizationId])
 }
@@ -341,6 +353,9 @@ model Visit {
   clockOutLat Float?
   clockOutLng Float?
 
+  /// When set, payroll uses this mileage (miles) for the visit instead of GPS-derived distance.
+  mileageMilesOverride Float?
+
   withinGeofence    Boolean?
   lateClockInReason String?
 
@@ -353,29 +368,39 @@ model Visit {
   notes                Note[]
   medicationEvents     MedicationEvent[]
   incidents            Incident[]
+  medicationAlerts     MedicationAlert[]
 }
 
 model Medication {
-  id               String       @id @default(cuid())
-  organizationId   String
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  clientId         String
-  client           Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  name             String
-  dosage           String?
-  instructions     String?
-  isPrn            Boolean      @default(false)
-  currentStock     Int?
-  reorderThreshold Int?
-  active           Boolean      @default(true)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name           String
+  dosage         String?
+  instructions   String?
+  isPrn          Boolean      @default(false)
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
+  stock     MedicationStock?
   schedules MedicationSchedule[]
   events    MedicationEvent[]
   auditLogs MedicationAuditLog[]
+  alerts    MedicationAlert[]
 
   @@index([organizationId, clientId, active])
+}
+
+model MedicationStock {
+  id               String     @id @default(cuid())
+  medicationId     String     @unique
+  medication       Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  currentStock     Int?
+  reorderThreshold Int?
+  updatedAt        DateTime   @updatedAt
 }
 
 model MedicationSchedule {
@@ -391,7 +416,8 @@ model MedicationSchedule {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  events MedicationEvent[]
+  events   MedicationEvent[]
+  alerts   MedicationAlert[]
 
   @@index([organizationId, medicationId, active])
 }
@@ -450,6 +476,33 @@ model MedicationAuditLog {
   @@index([organizationId, createdAt])
   @@index([medicationId, createdAt])
   @@index([medicationEventId, createdAt])
+}
+
+model MedicationAlert {
+  id                 String              @id @default(cuid())
+  organizationId     String
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  type               MedicationAlertType
+  medicationId       String
+  medication         Medication          @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  clientId           String
+  client             Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  visitId            String?
+  visit              Visit?              @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  scheduleId         String?
+  schedule           MedicationSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  dedupeKey          String              @unique
+  title              String
+  detail             String?
+  metadata           Json?
+  notifiedAt         DateTime?
+  acknowledgedAt     DateTime?
+  acknowledgedById String?
+  acknowledgedBy     User?               @relation("MedicationAlertAckBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  createdAt          DateTime            @default(now())
+
+  @@index([organizationId, acknowledgedAt, createdAt])
+  @@index([organizationId, type, createdAt])
 }
 
 model VisitChecklistSubmission {
@@ -819,6 +872,8 @@ model RiskAssessment {
   answers        Json
   totalScore     Int
   riskLevel      String
+  /// Snapshot of scoring lines and max possible score at submission time.
+  scoreBreakdown Json?
   reviewedAt     DateTime     @default(now())
   createdById    String
   createdBy      User         @relation("RiskAssessmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -919,6 +974,8 @@ model RateCard {
   payrollHourlyRate  Float
   mileageRatePerMile Float           @default(0.0)
   holidayAccrualRate Float           @default(0.1207)
+  /// Optional JSON rules, e.g. `{ "weekendHourlyMultiplier": 1.25 }` applied when generating invoices.
+  billingModifiers   Json?
   active             Boolean         @default(true)
   effectiveFrom      DateTime?
   effectiveTo        DateTime?
@@ -973,6 +1030,10 @@ model Payslip {
   mileagePay          Float         @default(0.0)
   holidayAccruedHours Float         @default(0.0)
   grossPay            Float         @default(0.0)
+  /// Approved expense reimbursements: `[{ "description": "Parking", "amount": 5.5 }]`
+  expenseReimbursements   Json      @default("[]")
+  expenseReimbursementTotal Float   @default(0.0)
+  netPayTotal               Float   @default(0.0)
   lineItems           Json
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt

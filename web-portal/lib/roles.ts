@@ -22,3 +22,7 @@ export function isStaff(user: User | null | undefined): boolean {
 export function isAdmin(user: User | null | undefined): boolean {
   return user?.role === 'ADMIN';
 }
+
+export function isGuardian(user: User | null | undefined): boolean {
+  return user?.role === 'GUARDIAN';
+}

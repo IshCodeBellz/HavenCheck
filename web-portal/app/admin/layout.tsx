@@ -13,6 +13,13 @@ const links: AdminTab[] = [
   { href: '/admin/users', label: 'Users' },
   { href: '/admin/carers', label: 'Carers' },
   { href: '/admin/clients', label: 'Clients' },
+  { href: '/admin/guardians', label: 'Guardians' },
+  { href: '/admin/care-plans', label: 'Care Plans' },
+  { href: '/admin/risk-assessments', label: 'Risk' },
+  { href: '/admin/mar', label: 'MAR' },
+  { href: '/admin/billing', label: 'Billing' },
+  { href: '/admin/payroll', label: 'Payroll' },
+  { href: '/admin/reports', label: 'Reports' },
   { href: '/admin/schedules', label: 'Schedules' },
   { href: '/admin/visits', label: 'Visits' },
 ];

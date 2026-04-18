@@ -15,7 +15,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-notifications"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",

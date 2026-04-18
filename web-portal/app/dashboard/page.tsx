@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import Layout from '@/components/Layout';
 import { authService } from '@/lib/auth';
-import { isCarerLikeRole } from '@/lib/roles';
+import { isCarerLikeRole, isGuardian } from '@/lib/roles';
 import { format } from 'date-fns';
 import Link from 'next/link';
 
@@ -39,6 +40,7 @@ interface ActiveVisit {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [viewerIsCarer, setViewerIsCarer] = useState(false);
   const [stats, setStats] = useState<DashboardStats>({
     activeCarers: 0,
@@ -55,8 +57,14 @@ export default function DashboardPage() {
   const missedVisitsHref = '/visits?quickFilter=today&status=MISSED';
 
   useEffect(() => {
-    authService.getCurrentUser().then((u) => setViewerIsCarer(isCarerLikeRole(u?.role)));
-  }, []);
+    authService.getCurrentUser().then((u) => {
+      if (isGuardian(u)) {
+        router.replace('/guardian');
+        return;
+      }
+      setViewerIsCarer(isCarerLikeRole(u?.role));
+    });
+  }, [router]);
 
   const loadStats = useCallback(async () => {
     try {

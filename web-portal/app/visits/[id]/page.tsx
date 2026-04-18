@@ -84,6 +84,22 @@ interface Note {
   };
 }
 
+interface MedicationEventRow {
+  id: string;
+  administeredAt: string;
+  status: string;
+  note: string | null;
+  reasonCode: string | null;
+  prnIndication: string | null;
+  dosageGiven: string | null;
+  signatureImage: string | null;
+  signedAt: string | null;
+  effectivenessNote: string | null;
+  medication: { name: string; dosage: string | null; isPrn: boolean };
+  schedule: { id: string; timeOfDay: string } | null;
+  recordedBy: { id: string; name: string };
+}
+
 interface Visit {
   id: string;
   client: { name: string; address: string };
@@ -96,6 +112,7 @@ interface Visit {
   lateClockInReason?: string;
   checklistSubmissions: ChecklistSubmission[];
   notes: Note[];
+  medicationEvents?: MedicationEventRow[];
 }
 
 export default function VisitDetailPage() {
@@ -466,6 +483,70 @@ export default function VisitDetailPage() {
               </form>
             </div>
           )}
+
+          {/* Medication events (eMAR) */}
+          <div className="bg-white shadow rounded-lg p-6 lg:col-span-2">
+            <h2 className="text-xl font-bold text-navy-900 mb-2">Medication events (eMAR)</h2>
+            <p className="text-sm text-navy-800/70 mb-4">
+              Administration and omissions recorded against this visit (mobile carer workflow).
+            </p>
+            {!visit.medicationEvents || visit.medicationEvents.length === 0 ? (
+              <p className="text-sm text-navy-800/70">No medication events recorded for this visit.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-navy-100">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-navy-50 text-left text-navy-800">
+                    <tr>
+                      <th className="px-3 py-2">Time</th>
+                      <th className="px-3 py-2">Medication</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Schedule</th>
+                      <th className="px-3 py-2">Recorded by</th>
+                      <th className="px-3 py-2">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-navy-100">
+                    {visit.medicationEvents.map((ev) => (
+                      <tr key={ev.id}>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {format(new Date(ev.administeredAt), 'MMM d, yyyy HH:mm')}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="font-medium text-navy-900">{ev.medication.name}</div>
+                          {ev.medication.dosage && (
+                            <div className="text-xs text-navy-700">{ev.medication.dosage}</div>
+                          )}
+                          {ev.medication.isPrn && (
+                            <span className="text-xs text-navy-600">PRN</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">{ev.status}</td>
+                        <td className="px-3 py-2">{ev.schedule?.timeOfDay ?? '—'}</td>
+                        <td className="px-3 py-2">{ev.recordedBy.name}</td>
+                        <td className="px-3 py-2 text-navy-800">
+                          {ev.reasonCode && <div>Reason: {ev.reasonCode}</div>}
+                          {ev.prnIndication && <div>PRN: {ev.prnIndication}</div>}
+                          {ev.dosageGiven && <div>PRN dosage: {ev.dosageGiven}</div>}
+                          {ev.signedAt && (
+                            <div className="text-xs text-navy-700">
+                              Signed: {format(new Date(ev.signedAt), 'MMM d, yyyy HH:mm')}
+                            </div>
+                          )}
+                          {ev.note && <div>{ev.note}</div>}
+                          {ev.effectivenessNote && (
+                            <div className="text-xs text-navy-700">Effectiveness: {ev.effectivenessNote}</div>
+                          )}
+                          {!ev.reasonCode && !ev.prnIndication && !ev.note && !ev.effectivenessNote && (
+                            <span className="text-navy-500">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
           {/* Checklists */}
           <div className="bg-white shadow rounded-lg p-6">
